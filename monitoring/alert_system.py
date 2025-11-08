@@ -16,6 +16,11 @@ class AlertType(Enum):
     SUPPORT_BOUNCE = "Support Bounce"
     RESISTANCE_BREAK = "Resistance Break"
     PREDICTION_OPPORTUNITY = "ML Prediction Signal"
+    SD_3_TOUCH = "3 Sigma Touch"
+    SD_2_REVERSAL = "2 Sigma Reversal"
+    REGRESSION_BREAK = "Regression Line Break"
+    CHANNEL_SQUEEZE = "Volatility Squeeze"
+    EXTREME_EXHAUSTION = "Extreme Exhaustion"
 
 
 @dataclass
@@ -98,6 +103,110 @@ class AlertSystem:
 
         self.alerts.extend(new_alerts)
         return new_alerts
+
+    def _check_regression_alerts(self, ticker, df):
+        """Check for regression channel-based alerts"""
+        alerts = []
+        latest = df.iloc[-1]
+        prev = df.iloc[-2]
+
+        # 1. Three Sigma Touch (RARE - High Priority)
+        if abs(latest['sd_position']) >= 2.8:
+            direction = "overbought" if latest['sd_position'] > 0 else "oversold"
+            target = latest['regression_line']
+
+            alerts.append(Alert(
+                ticker=ticker,
+                alert_type=AlertType.SD_3_TOUCH,
+                message=f"{ticker} at {latest['sd_position']:.1f} SD ({direction}) - RARE EVENT",
+                current_price=latest['close'],
+                target_price=target,
+                confidence=0.85,  # High confidence in mean reversion from 3SD
+                timestamp=datetime.now(),
+                metadata={
+                    'sd_position': latest['sd_position'],
+                    'regression_line': latest['regression_line'],
+                    'channel_width': latest['channel_width'],
+                    'regression_slope': latest['regression_slope']
+                }
+            ))
+
+        # 2. Two Sigma Reversal Signal
+        if prev['sd_position'] >= 2.0 and latest['sd_position'] < prev['sd_position']:
+            # Starting to revert from upper 2SD
+            alerts.append(Alert(
+                ticker=ticker,
+                alert_type=AlertType.SD_2_REVERSAL,
+                message=f"{ticker} reverting from +2SD (potential short)",
+                current_price=latest['close'],
+                target_price=latest['regression_line'],
+                confidence=0.7,
+                timestamp=datetime.now(),
+                metadata={'sd_position': latest['sd_position']}
+            ))
+
+        elif prev['sd_position'] <= -2.0 and latest['sd_position'] > prev['sd_position']:
+            # Starting to revert from lower 2SD
+            alerts.append(Alert(
+                ticker=ticker,
+                alert_type=AlertType.SD_2_REVERSAL,
+                message=f"{ticker} bouncing from -2SD (potential long)",
+                current_price=latest['close'],
+                target_price=latest['regression_line'],
+                confidence=0.7,
+                timestamp=datetime.now(),
+                metadata={'sd_position': latest['sd_position']}
+            ))
+
+        # 3. Regression Line Cross
+        if prev['above_regression'] != latest['above_regression']:
+            direction = "above" if latest['above_regression'] else "below"
+            alerts.append(Alert(
+                ticker=ticker,
+                alert_type=AlertType.REGRESSION_BREAK,
+                message=f"{ticker} crossed {direction} regression line",
+                current_price=latest['close'],
+                target_price=latest[f'{"upper" if direction == "above" else "lower"}_2sd'],
+                confidence=0.6,
+                timestamp=datetime.now(),
+                metadata={
+                    'regression_line': latest['regression_line'],
+                    'trend_slope': latest['regression_slope']
+                }
+            ))
+
+        # 4. Channel Squeeze (Volatility Contraction)
+        recent_width = df['channel_width'].tail(20)
+        if latest['channel_width'] < recent_width.quantile(0.2):
+            alerts.append(Alert(
+                ticker=ticker,
+                alert_type=AlertType.CHANNEL_SQUEEZE,
+                message=f"{ticker} channel squeeze - potential breakout setup",
+                current_price=latest['close'],
+                target_price=latest['close'] * 1.03,  # 3% breakout target
+                confidence=0.5,
+                timestamp=datetime.now(),
+                metadata={'channel_width': latest['channel_width']}
+            ))
+
+        # 5. Extreme Exhaustion (3+ days beyond 2SD)
+        if latest['days_above_2sd'] >= 3 or latest['days_below_2sd'] >= 3:
+            direction = "overbought" if latest['days_above_2sd'] >= 3 else "oversold"
+            alerts.append(Alert(
+                ticker=ticker,
+                alert_type=AlertType.EXTREME_EXHAUSTION,
+                message=f"{ticker} exhaustion - {direction} for {max(latest['days_above_2sd'], latest['days_below_2sd'])} days",
+                current_price=latest['close'],
+                target_price=latest['regression_line'],
+                confidence=0.75,
+                timestamp=datetime.now(),
+                metadata={
+                    'days_extended': max(latest['days_above_2sd'], latest['days_below_2sd']),
+                    'sd_position': latest['sd_position']
+                }
+            ))
+
+        return alerts
 
     def _check_rsi_alerts(self, ticker, df):
         """Check RSI conditions"""

@@ -89,12 +89,35 @@ class MultiTimeframePredictor:
         """Create features optimized for specific prediction horizon"""
         features = pd.DataFrame(index=df.index)
 
-        # Price momentum features (different lookbacks based on horizon)
-        lookbacks = [1, 3, 5, 10, 20, 50] if horizon > 5 else [1, 2, 3, 5, 10]
+        # REGRESSION CHANNEL FEATURES (PRIMARY)
+        # Current position in channel
+        features['sd_position'] = df['sd_position']
+        features['sd_position_squared'] = df['sd_position'] ** 2  # Non-linear effects at extremes
+        features['at_extreme'] = df['at_extreme']
+        features['at_3sd'] = df['at_3sd']
 
-        for lb in lookbacks:
-            features[f'return_{lb}d'] = df['close'].pct_change(lb)
-            features[f'volume_ratio_{lb}d'] = df['volume'] / df['volume'].rolling(lb).mean()
+        # Regression trend features
+        features['regression_slope'] = df['regression_slope']
+        features['regression_r2'] = df['regression_r2']
+        features['trend_strength'] = df['trend_strength']
+        features['above_regression'] = df['above_regression']
+
+        # Distance features
+        features['pct_from_regression'] = df['pct_from_regression']
+        features['residual_normalized'] = df['residual'] / df['close']  # Normalized residual
+
+        # Channel characteristics
+        features['channel_width'] = df['channel_width']
+        features['channel_width_expanding'] = df['channel_width_expanding']
+
+        # Mean reversion signals
+        features['days_above_2sd'] = df['days_above_2sd']
+        features['days_below_2sd'] = df['days_below_2sd']
+        features['sd_position_change'] = df['sd_position_change']
+
+        # Historical behavior
+        features['touches_3sd_20d'] = df['touches_3sd_20d']
+        features['mean_reversion_20d'] = df['mean_reversion_20d']
 
         # Volatility features
         features['volatility_20'] = df['close'].pct_change().rolling(20).std()
@@ -119,7 +142,26 @@ class MultiTimeframePredictor:
         features['dist_from_52w_high'] = df['close'] / df['high'].rolling(252).max() - 1
         features['dist_from_52w_low'] = df['close'] / df['low'].rolling(252).min() - 1
 
+        # Price momentum (adjusted for regression context)
+        for lb in [1, 3, 5, 10, 20]:
+            features[f'return_{lb}d'] = df['close'].pct_change(lb)
+            # How SD position changed over period
+            features[f'sd_change_{lb}d'] = df['sd_position'] - df['sd_position'].shift(lb)
+
+        # RSI with context
+        features['rsi'] = df['rsi']
+        features['rsi_vs_sd'] = df['rsi'] - (df['sd_position'] * 10 + 50)  # RSI vs expected from SD
+
+        # Volume at extremes
+        features['volume_at_extreme'] = df['volume'] * df['at_extreme']
+        features['volume_ratio'] = df['volume_ratio']
+
+        # Interaction features
+        features['sd_rsi_interaction'] = df['sd_position'] * df['rsi']
+        features['sd_volume_interaction'] = df['sd_position'] * df['volume_ratio']
+
         return features
+
 
     def predict(self, ticker: str, df: pd.DataFrame) -> PredictionResult:
         """Generate predictions for all timeframes"""
@@ -167,17 +209,37 @@ class MultiTimeframePredictor:
         )
 
     def _calculate_confidence(self, model, df, timeframe_name):
-        """Calculate confidence score for prediction"""
-        # Simplified confidence based on recent volatility and model performance
-        recent_volatility = df['close'].pct_change().tail(20).std()
+        """Calculate confidence with emphasis on SD position"""
+        # Base confidence from model
+        base_confidence = 0.7
 
-        # Lower confidence for higher volatility
-        volatility_factor = max(0.5, 1 - (recent_volatility * 10))
+        # Get current SD position
+        current_sd_position = abs(df['sd_position'].iloc[-1])
 
-        # You could also track model's recent prediction accuracy here
-        base_confidence = 0.7  # This should come from backtesting
+        # Higher confidence at extremes
+        if current_sd_position >= 2.5:
+            sd_confidence_boost = 0.2
+        elif current_sd_position >= 2.0:
+            sd_confidence_boost = 0.15
+        elif current_sd_position >= 1.5:
+            sd_confidence_boost = 0.1
+        else:
+            sd_confidence_boost = 0
 
-        return min(0.95, base_confidence * volatility_factor)
+        # Trend consistency factor
+        r2 = df['regression_r2'].iloc[-1]
+        trend_factor = r2 * 0.1  # Up to 10% boost for strong trends
+
+        # Recent volatility (lower confidence if channel is expanding rapidly)
+        if df['channel_width_expanding'].iloc[-1]:
+            volatility_penalty = -0.1
+        else:
+            volatility_penalty = 0
+
+        # Combine factors
+        final_confidence = base_confidence + sd_confidence_boost + trend_factor + volatility_penalty
+
+        return min(0.95, max(0.3, final_confidence))
 
     def _analyze_technical_signals(self, df):
         """Analyze current technical indicators"""
