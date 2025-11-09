@@ -25,12 +25,33 @@ class MultiTimeframePredictor:
         self.models = {}  # Store different models for different timeframes
         self.scalers = {}
         self.timeframes = {
-            '1_day': 1,
             '3_days': 3,
             '1_week': 5,
             '2_weeks': 10,
             '1_month': 22,
+            '3_months': 66,  # Approximately 66 trading days in 3 months
         }
+
+    def save_models(self, path):
+        import joblib
+        model_data = {
+            'models': self.models,
+            'scalers': self.scalers,
+            'timeframes': self.timeframes
+        }
+        joblib.dump(model_data, path)
+        print(f"Models saved to {path}")
+
+    def load_models(self, path):
+        import joblib
+        import os
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"Model file not found: {path}")
+        model_data = joblib.load(path)
+        self.models = model_data['models']
+        self.scalers = model_data['scalers']
+        self.timeframes = model_data['timeframes']
+        print(f"Models loaded from {path}")
 
     def train_models(self, df: pd.DataFrame):
         """Train separate models for each timeframe"""
@@ -46,9 +67,11 @@ class MultiTimeframePredictor:
             features = self._engineer_features(df_timeframe, periods)
 
             # Remove NaN rows
-            valid_data = features.join(df_timeframe[['target', 'target_return']]).dropna()
+            valid_data = features.join(df_timeframe[['target', 'target_return', 'close']]).dropna()
 
-            X = valid_data.drop(['target', 'target_return'], axis=1)
+            current_prices = valid_data['close'].copy()
+
+            X = valid_data.drop(['target', 'target_return', 'close'], axis=1)
             y = valid_data['target']
 
             # Scale features
@@ -61,7 +84,8 @@ class MultiTimeframePredictor:
                 max_depth=6,
                 learning_rate=0.01,
                 objective='reg:squarederror',
-                random_state=42
+                random_state=42,
+                early_stopping_rounds=50  # Add here instead
             )
 
             # Use time series split for validation
@@ -72,7 +96,6 @@ class MultiTimeframePredictor:
             model.fit(
                 X_train, y_train,
                 eval_set=[(X_test, y_test)],
-                early_stopping_rounds=50,
                 verbose=False
             )
 
@@ -84,6 +107,14 @@ class MultiTimeframePredictor:
             predictions = model.predict(X_test)
             mape = np.mean(np.abs((y_test - predictions) / y_test)) * 100
             print(f"  MAPE: {mape:.2f}%")
+
+            from models.validation.metrics import validate_predictions
+            # Get the actual current prices from the test set
+            current_prices_test = current_prices.iloc[split_point:].values
+            metrics = validate_predictions(y_test, predictions, current_prices_test)
+            print(f"  Directional Accuracy: {metrics['directional_accuracy']:.1f}%")
+            print(f"  Win Rate: {metrics['win_rate']:.1f}%")
+            print(f"  Profit Factor: {metrics['profit_factor']:.2f}")
 
     def _engineer_features(self, df: pd.DataFrame, horizon: int) -> pd.DataFrame:
         """Create features optimized for specific prediction horizon"""

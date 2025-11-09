@@ -29,17 +29,21 @@ def init_system():
 
     # Load or train model
     model_path = 'models/saved/timeframe_models.pkl'
+    models_loaded = False
     if os.path.exists(model_path):
-        predictor.load_models(model_path)
-    else:
-        st.warning("No trained model found. Please train the model first using the Model Training tab.")
+        try:
+            predictor.load_models(model_path)
+            models_loaded = True
+        except Exception as e:
+            st.error(f"Error loading models: {e}")
 
     alert_system = AlertSystem(fetcher, predictor)
 
-    return fetcher, predictor, alert_system
+    return fetcher, predictor, alert_system, models_loaded
 
 
-fetcher, predictor, alert_system = init_system()
+
+fetcher, predictor, alert_system, models_loaded = init_system()
 
 # Streamlit UI
 st.title("📈 Stock Analysis & Alert System with Regression Channels")
@@ -54,21 +58,41 @@ mode = st.sidebar.selectbox(
 st.markdown("""
 <style>
     .stMetric {
-        background-color: #f0f2f6;
-        padding: 10px;
-        border-radius: 5px;
+        background-color: #1e1e1e;
+        padding: 15px;
+        border-radius: 8px;
         margin: 5px;
+        border: 1px solid #333;
+    }
+    .stMetric label {
+        color: #ffffff !important;
+        font-weight: 600;
+        font-size: 14px;
+    }
+    .stMetric [data-testid="stMetricValue"] {
+        color: #ffffff !important;
+        font-size: 24px;
+        font-weight: 700;
+    }
+    .stMetric [data-testid="stMetricDelta"] {
+        font-size: 14px;
+        font-weight: 600;
     }
     .alert-box {
-        padding: 10px;
-        border-radius: 5px;
+        padding: 15px;
+        border-radius: 8px;
         margin: 10px 0;
+        font-size: 16px;
     }
     .buy-signal {
-        background-color: #d4f8d4;
+        background-color: #1a472a;
+        color: #4ade80;
+        border: 2px solid #4ade80;
     }
     .sell-signal {
-        background-color: #ffd4d4;
+        background-color: #4a1a1a;
+        color: #f87171;
+        border: 2px solid #f87171;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -725,9 +749,9 @@ elif mode == "Model Training":
 
         regression_period = st.number_input(
             "Regression Channel Period",
-            min_value=50,
-            max_value=365,
-            value=252,
+            min_value=100,
+            max_value=1000,
+            value=400,
             help="252 trading days = 1 year"
         )
 

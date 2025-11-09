@@ -69,7 +69,7 @@ class AlpacaDataFetcher:
 
     # Add this method to your AlpacaDataFetcher class in data/alpaca_fetcher.py
 
-    def add_regression_channels(self, df, period=252):
+    def add_regression_channels(self, df, period=249):
         """
         Add linear regression and residual-based standard deviation channels
 
@@ -289,13 +289,13 @@ class AlpacaDataFetcher:
         df['volatility_20'] = df['returns'].rolling(window=20).std() * np.sqrt(252)
 
         # Add regression channels (252-day for yearly)
-        df = self.add_regression_channels(df, period=252)
+        df = self.add_regression_channels(df, period=249)
 
         # Add ML-specific regression features
         df = self.add_regression_features_for_ml(df)
 
         # Fill NaN values
-        df = df.fillna(method='bfill').fillna(method='ffill')
+        df = df.bfill().ffill()
 
         return df
 

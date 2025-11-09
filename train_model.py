@@ -40,7 +40,7 @@ def train_models():
         try:
             df = fetcher.get_bars(
                 symbol,
-                start_date=datetime.now() - timedelta(days=500),
+                start_date=datetime.now() - timedelta(days=480),
                 end_date=datetime.now()
             )
 
