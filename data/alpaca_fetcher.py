@@ -295,7 +295,7 @@ class AlpacaDataFetcher:
         df = self.add_regression_features_for_ml(df)
 
         # Fill NaN values
-        df = df.bfill().ffill()
+        df = df.ffill()
 
         return df
 

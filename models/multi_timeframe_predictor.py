@@ -240,37 +240,65 @@ class MultiTimeframePredictor:
         )
 
     def _calculate_confidence(self, model, df, timeframe_name):
-        """Calculate confidence with emphasis on SD position"""
+        """
+        Enhanced confidence calculation with emphasis on SD position and context
+        """
         # Base confidence from model
-        base_confidence = 0.7
+        base_confidence = 0.6
 
         # Get current SD position
         current_sd_position = abs(df['sd_position'].iloc[-1])
 
-        # Higher confidence at extremes
+        # Higher confidence at extremes (mean reversion is reliable)
         if current_sd_position >= 2.5:
-            sd_confidence_boost = 0.2
+            sd_confidence_boost = 0.25  # Very high confidence
         elif current_sd_position >= 2.0:
-            sd_confidence_boost = 0.15
+            sd_confidence_boost = 0.20
         elif current_sd_position >= 1.5:
-            sd_confidence_boost = 0.1
+            sd_confidence_boost = 0.15
+        elif current_sd_position >= 1.0:
+            sd_confidence_boost = 0.10
         else:
-            sd_confidence_boost = 0
+            sd_confidence_boost = 0.05  # Lower confidence in neutral zone
 
         # Trend consistency factor
         r2 = df['regression_r2'].iloc[-1]
         trend_factor = r2 * 0.1  # Up to 10% boost for strong trends
 
+        # Time at extreme (more time = higher confidence in reversion)
+        days_extended = max(
+            df['days_above_2sd'].iloc[-1] if 'days_above_2sd' in df.columns else 0,
+            df['days_below_2sd'].iloc[-1] if 'days_below_2sd' in df.columns else 0
+        )
+        if days_extended >= 3:
+            extreme_time_boost = 0.15
+        elif days_extended >= 2:
+            extreme_time_boost = 0.10
+        else:
+            extreme_time_boost = 0
+
         # Recent volatility (lower confidence if channel is expanding rapidly)
         if df['channel_width_expanding'].iloc[-1]:
-            volatility_penalty = -0.1
+            volatility_penalty = -0.05
         else:
             volatility_penalty = 0
 
-        # Combine factors
-        final_confidence = base_confidence + sd_confidence_boost + trend_factor + volatility_penalty
+        # Historical mean reversion success rate
+        if 'mean_reversion_20d' in df.columns:
+            reversion_rate = df['mean_reversion_20d'].iloc[-1] / 20
+            reversion_boost = reversion_rate * 0.1
+        else:
+            reversion_boost = 0
 
-        return min(0.95, max(0.3, final_confidence))
+        # Combine factors
+        final_confidence = (base_confidence +
+                            sd_confidence_boost +
+                            trend_factor +
+                            extreme_time_boost +
+                            volatility_penalty +
+                            reversion_boost)
+
+        return min(0.95, max(0.30, final_confidence))
 
     def _analyze_technical_signals(self, df):
         """Analyze current technical indicators"""
@@ -311,23 +339,137 @@ class MultiTimeframePredictor:
         }
 
     def _generate_recommendation(self, predictions, confidence, signals, df):
-        """Generate trading recommendation based on all factors"""
+        """
+        Generate trading recommendation based on regression channel position
+        Returns: LONG, SHORT, or HOLD with reasoning
+        """
         current_price = df['close'].iloc[-1]
+        latest = df.iloc[-1]
+        prev = df.iloc[-2]
 
-        # Calculate average expected return
-        returns = [(pred - current_price) / current_price for pred in predictions.values()]
-        avg_return = np.mean(returns)
+        # Key metrics
+        sd_position = latest['sd_position']
+        regression_line = latest['regression_line']
+        days_above_2sd = latest.get('days_above_2sd', 0)
+        days_below_2sd = latest.get('days_below_2sd', 0)
 
-        # Weight by confidence
-        weighted_return = avg_return * np.mean(list(confidence.values()))
+        # Price action analysis
+        upper_wick = (latest['high'] - latest['close']) / latest['close']
+        lower_wick = (latest['close'] - latest['low']) / latest['close']
+        body_size = abs(latest['close'] - latest['open']) / latest['open']
 
-        if weighted_return > 0.03 and signals['trend'] == 'bullish':
-            return "STRONG BUY - Positive outlook across timeframes with bullish trend"
-        elif weighted_return > 0.01:
-            return "BUY - Moderate positive outlook"
-        elif weighted_return < -0.03 and signals['trend'] == 'bearish':
-            return "SELL - Negative outlook with bearish trend"
-        elif weighted_return < -0.01:
-            return "WEAK SELL - Moderate negative outlook"
-        else:
-            return "HOLD - Mixed signals, await clearer direction"
+        # Trend context
+        regression_slope = latest['regression_slope']
+        above_regression = latest['above_regression']
+
+        # Volume context
+        volume_surge = latest['volume'] > df['volume'].rolling(20).mean().iloc[-1] * 1.5
+
+        # ============================================================================
+        # DECISION LOGIC - Based on Standard Deviation Position
+        # ============================================================================
+
+        # 1. EXTREME OVERSOLD - Strong Long Signal
+        if sd_position <= -2.5:
+            if days_below_2sd >= 3:
+                return "LONG - Extreme oversold (3+ days below -2σ), high probability mean reversion"
+            else:
+                return "LONG - Extreme oversold below -2.5σ, expect bounce to regression line"
+
+        # 2. OVERSOLD ZONE (-2σ to -1.5σ) - Long Signal
+        elif sd_position <= -2.0:
+            # Check for signs of reversal
+            if lower_wick > 0.015:  # 1.5% lower wick = buying pressure
+                return "LONG - Oversold with buyer support, reversal likely"
+            elif sd_position > prev['sd_position']:  # Starting to move up
+                return "LONG - Oversold and starting mean reversion"
+            else:
+                return "LONG - Oversold below -2σ, favorable risk/reward for long"
+
+        elif sd_position <= -1.5:
+            if volume_surge and latest['close'] > latest['open']:  # Bullish volume spike
+                return "LONG - Oversold with bullish volume, bounce expected"
+            else:
+                return "LONG - Below -1.5σ, good entry for mean reversion play"
+
+        # 3. LOWER BAND (-1σ to -1.5σ) - Potential Long
+        elif sd_position <= -1.0:
+            # Near term predictions
+            near_term_returns = [
+                (predictions.get('3_days', current_price) - current_price) / current_price,
+                (predictions.get('1_week', current_price) - current_price) / current_price
+            ]
+            avg_near_term = sum(near_term_returns) / len(near_term_returns)
+
+            if avg_near_term > 0.02:  # 2%+ expected return
+                return "LONG - Below -1σ with positive near-term outlook"
+            else:
+                return "HOLD - Near -1σ, wait for clearer signal or deeper pullback"
+
+        # 4. NEUTRAL ZONE (-1σ to +1σ) - Hold or Trend Follow
+        elif -1.0 < sd_position < 1.0:
+            # Within 1 SD = HOLD unless strong trend
+
+            # Check if price is crossing regression line
+            if not above_regression and prev['above_regression']:  # Just crossed below
+                return "SHORT - Broke below regression line, momentum shifting bearish"
+            elif above_regression and not prev['above_regression']:  # Just crossed above
+                return "LONG - Broke above regression line, momentum shifting bullish"
+
+            # Check trend strength
+            if abs(regression_slope) > latest['close'] * 0.001:  # Strong trend
+                r2 = latest['regression_r2']
+                if r2 > 0.8 and regression_slope > 0:  # Strong uptrend
+                    if above_regression:
+                        return "LONG - Strong uptrend with price above regression, ride the trend"
+                    else:
+                        return "HOLD - Uptrend but price below regression, wait for confirmation"
+                elif r2 > 0.8 and regression_slope < 0:  # Strong downtrend
+                    if not above_regression:
+                        return "SHORT - Strong downtrend with price below regression"
+                    else:
+                        return "HOLD - Downtrend but price above regression, wait for confirmation"
+
+            return "HOLD - Within 1σ of regression line, no clear edge"
+
+        # 5. UPPER BAND (+1σ to +1.5σ) - Potential Short
+        elif sd_position >= 1.0 and sd_position < 1.5:
+            # Near term predictions
+            near_term_returns = [
+                (predictions.get('3_days', current_price) - current_price) / current_price,
+                (predictions.get('1_week', current_price) - current_price) / current_price
+            ]
+            avg_near_term = sum(near_term_returns) / len(near_term_returns)
+
+            if avg_near_term < -0.02:  # -2% expected return
+                return "SHORT - Above +1σ with negative near-term outlook"
+            elif upper_wick > 0.015:  # Rejection
+                return "SHORT - Above +1σ with rejection signal, pullback expected"
+            else:
+                return "HOLD - Above +1σ, extended but no clear reversal signal yet"
+
+        # 6. OVERBOUGHT ZONE (+1.5σ to +2σ) - Short Signal
+        elif sd_position >= 1.5 and sd_position < 2.0:
+            if upper_wick > 0.015:  # 1.5% upper wick = selling pressure
+                return "SHORT - Overbought with seller pressure, reversal likely"
+            elif sd_position < prev['sd_position']:  # Starting to move down
+                return "SHORT - Overbought and starting mean reversion"
+            else:
+                return "SHORT - Overbought above +1.5σ, favorable risk/reward for short"
+
+        elif sd_position >= 2.0 and sd_position < 2.5:
+            # Check for signs of exhaustion
+            if volume_surge and latest['close'] < latest['open']:  # Bearish volume spike
+                return "SHORT - Overbought with bearish volume, pullback expected"
+            else:
+                return "SHORT - Above +2σ, good entry for mean reversion short"
+
+        # 7. EXTREME OVERBOUGHT - Strong Short Signal
+        elif sd_position >= 2.5:
+            if days_above_2sd >= 3:
+                return "SHORT - Extreme overbought (3+ days above +2σ), high probability mean reversion"
+            else:
+                return "SHORT - Extreme overbought above +2.5σ, expect pullback to regression line"
+
+        # Fallback
+        return "HOLD - Unable to determine clear signal"
