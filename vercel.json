@@ -7,8 +7,11 @@
     }
   ],
   "functions": {
-    "app.py": { "maxDuration": 60, "memory": 1024 }
+    "api/index.py": { "maxDuration": 60, "memory": 1024 }
   },
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/api/index" }
+  ],
   "headers": [
     {
       "source": "/api/(.*)",
