@@ -1,7 +1,6 @@
 """Vercel serverless function: POST /api/backtest/{ticker}
 
-Runs a single-ticker backtest using the BacktestConfig fields posted in
-the JSON body. Mirrors the FastAPI route in backend/main.py.
+Rewritten by vercel.json to /api/backtest?ticker=... — see api/chart.py.
 """
 from __future__ import annotations
 
@@ -11,23 +10,22 @@ import sys
 import traceback
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
-_ROOT = Path(__file__).resolve().parent.parent.parent
+_ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 
-def _extract_ticker(path: str) -> str:
-    p = urlparse(path).path.strip("/")
-    parts = p.split("/")
-    return parts[-1].upper() if parts else ""
+def _ticker_from_query(path: str) -> str:
+    qs = parse_qs(urlparse(path).query)
+    return (qs.get("ticker") or [""])[0].upper()
 
 
 class handler(BaseHTTPRequestHandler):
     def do_POST(self):
         try:
-            ticker = _extract_ticker(self.path)
+            ticker = _ticker_from_query(self.path)
             if not ticker:
                 self._json(400, {"detail": "missing ticker"})
                 return

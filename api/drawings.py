@@ -1,7 +1,6 @@
 """Vercel serverless function: GET/PUT /api/drawings/{ticker}
 
-Per-ticker drawings blob ({hlines, trendlines, fibs, trades}) used by the
-cross-device sync. Persisted in KV.
+Rewritten by vercel.json to /api/drawings?ticker=... — see api/chart.py.
 """
 from __future__ import annotations
 
@@ -10,24 +9,23 @@ import sys
 import traceback
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
-_ROOT = Path(__file__).resolve().parent.parent.parent
+_ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 
-def _extract_ticker(path: str) -> str:
-    p = urlparse(path).path.strip("/")
-    parts = p.split("/")
-    return parts[-1].upper() if parts else ""
+def _ticker_from_query(path: str) -> str:
+    qs = parse_qs(urlparse(path).query)
+    return (qs.get("ticker") or [""])[0].upper()
 
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
         try:
             from backend import kv
-            ticker = _extract_ticker(self.path)
+            ticker = _ticker_from_query(self.path)
             if not ticker:
                 self._json(400, {"detail": "missing ticker"})
                 return
@@ -38,7 +36,7 @@ class handler(BaseHTTPRequestHandler):
     def do_PUT(self):
         try:
             from backend import kv
-            ticker = _extract_ticker(self.path)
+            ticker = _ticker_from_query(self.path)
             if not ticker:
                 self._json(400, {"detail": "missing ticker"})
                 return

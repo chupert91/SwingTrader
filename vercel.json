@@ -1,7 +1,5 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": null,
-  "outputDirectory": ".",
   "crons": [
     {
       "path": "/api/scan",
@@ -9,17 +7,25 @@
     }
   ],
   "functions": {
-    "api/**/*.py": {
-      "maxDuration": 60,
-      "memory": 1024
-    }
+    "api/scan.py": { "maxDuration": 60, "memory": 1024 },
+    "api/sweep.py": { "maxDuration": 60, "memory": 1024 },
+    "api/backtest.py": { "maxDuration": 30, "memory": 1024 },
+    "api/chart.py": { "maxDuration": 30, "memory": 1024 },
+    "api/summary.py": { "maxDuration": 30, "memory": 1024 },
+    "api/alerts.py": { "maxDuration": 60, "memory": 1024 }
   },
   "rewrites": [
     { "source": "/", "destination": "/frontend/index.html" },
     { "source": "/style.css", "destination": "/frontend/style.css" },
     { "source": "/chart.js", "destination": "/frontend/chart.js" },
     { "source": "/backtest.html", "destination": "/frontend/backtest.html" },
-    { "source": "/backtest.js", "destination": "/frontend/backtest.js" }
+    { "source": "/backtest.js", "destination": "/frontend/backtest.js" },
+    { "source": "/api/chart/:ticker", "destination": "/api/chart?ticker=:ticker" },
+    { "source": "/api/summary/:ticker", "destination": "/api/summary?ticker=:ticker" },
+    { "source": "/api/backtest/:ticker", "destination": "/api/backtest?ticker=:ticker" },
+    { "source": "/api/sweep/:ticker", "destination": "/api/sweep?ticker=:ticker" },
+    { "source": "/api/drawings/:ticker", "destination": "/api/drawings?ticker=:ticker" },
+    { "source": "/api/alerts/scan", "destination": "/api/alerts" }
   ],
   "headers": [
     {

@@ -1,11 +1,12 @@
-"""Vercel serverless function: GET /api/alerts
+"""Vercel serverless function for the in-app alerts panel.
 
-Returns the most recent fired alert signals. Wraps the same KV history
-the chart sidebar displays.
+GET  /api/alerts         -> {"alerts": [...]}        recent fired signals
+POST /api/alerts/scan    -> run a scan now           (rewritten to this same file)
 """
 from __future__ import annotations
 
 import json
+import logging
 import sys
 import traceback
 from http.server import BaseHTTPRequestHandler
@@ -15,6 +16,8 @@ from urllib.parse import parse_qs, urlparse
 _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
+
+logger = logging.getLogger(__name__)
 
 
 class handler(BaseHTTPRequestHandler):
@@ -29,6 +32,18 @@ class handler(BaseHTTPRequestHandler):
             self._json(200, {"alerts": kv.history(limit=limit)})
         except Exception as exc:
             self._json(500, {"detail": str(exc), "trace": traceback.format_exc()})
+
+    def do_POST(self):
+        # Browser-triggered scan from the "scan now" button. vercel.json
+        # rewrites /api/alerts/scan -> /api/alerts so it lands here.
+        try:
+            from backend.scan import run_scan
+            result = run_scan()
+            self._json(200, result)
+        except Exception as exc:
+            logger.exception("scan failed: %s", exc)
+            self._json(500, {"ok": False, "error": str(exc),
+                             "trace": traceback.format_exc()})
 
     def _json(self, status: int, payload: dict) -> None:
         self.send_response(status)
