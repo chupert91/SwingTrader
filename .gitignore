@@ -1,0 +1,27 @@
+# Secrets
+.env
+
+# Runtime state
+state/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Optimizer caches
+.opt_cache.pkl
+.opt_stops_cache.pkl
+.opt_trend_cache.pkl
+
+# Vercel
+.vercel/
+
+# Claude Code local session state
+.claude/

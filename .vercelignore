@@ -1,0 +1,27 @@
+# Local-only files
+.env
+.env.local
+state/
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Optimization scripts + caches — not needed in serverless deploy
+optimize.py
+optimize_stops.py
+optimize_trend.py
+.opt_cache.pkl
+.opt_stops_cache.pkl
+.opt_trend_cache.pkl
+
+# Local-only Python entry
+run.py
+
+# IDE
+.idea/
+.vscode/
+
+# Memory files (Claude Code)
+.claude/

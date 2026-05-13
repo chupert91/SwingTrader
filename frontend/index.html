@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0e1117" />
+  <title>SwingTrader</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <button id="sidebar-toggle" class="sidebar-toggle" aria-label="Toggle sidebar" type="button">
+      <span></span><span></span><span></span>
+    </button>
+    <div class="brand">SwingTrader</div>
+    <form id="ticker-form" class="ticker-form">
+      <input id="ticker-input" type="text" value="AAPL" autocomplete="off" spellcheck="false" />
+      <button type="submit">Load</button>
+    </form>
+    <div id="summary" class="summary"></div>
+    <a class="topbar-link" href="/backtest.html">Backtest →</a>
+    <div class="legend" id="legend">
+      <span class="legend-item"><i class="sw-reg"></i>Reg</span>
+      <span class="legend-item"><i class="sw-1"></i>±1σ</span>
+      <span class="legend-item"><i class="sw-2"></i>±2σ</span>
+      <span class="legend-item"><i class="sw-3"></i>±3σ</span>
+      <span class="legend-item"><i class="sw-tenkan"></i>Tenkan</span>
+      <span class="legend-item"><i class="sw-kijun"></i>Kijun</span>
+      <span class="legend-item"><i class="sw-senkou-a"></i>Senkou A</span>
+      <span class="legend-item"><i class="sw-senkou-b"></i>Senkou B</span>
+    </div>
+  </header>
+  <div class="sidebar-scrim" id="sidebar-scrim"></div>
+  <div class="layout">
+    <aside class="drawing-rail" id="drawing-rail">
+      <div class="drawing-toolbar" id="drawing-toolbar">
+        <button data-tool="cursor" title="Cursor — no drawing" class="active">⌖</button>
+        <button data-tool="hline" title="Horizontal line — click to place">─</button>
+        <button data-tool="trend" title="Trend line — click two points">╱</button>
+        <button data-tool="fib" title="Fibonacci retracement — click high and low">Φ</button>
+        <button data-tool="entry" title="Mark trade entry — click to place" class="tool-entry">▲</button>
+        <button data-tool="exit" title="Mark trade exit — click to place" class="tool-exit">▼</button>
+        <button data-tool="clear" title="Clear all drawings on this ticker">×</button>
+      </div>
+    </aside>
+    <main>
+      <div class="pane pane-price">
+        <div class="pane-label">Price</div>
+        <div id="drawing-hint" class="drawing-hint"></div>
+        <div id="chart-price" class="chart"></div>
+      </div>
+      <div class="pane pane-indicator">
+        <div class="pane-label">Stoch RSI (14, 14, 3, 3)</div>
+        <div id="chart-stoch" class="chart"></div>
+      </div>
+      <div class="pane pane-indicator">
+        <div class="pane-label">MACD (12,26,9)</div>
+        <div id="chart-macd" class="chart"></div>
+      </div>
+      <div id="status" class="status"></div>
+    </main>
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">Watchlist</div>
+      <form id="watchlist-add-form" class="watchlist-add">
+        <input id="watchlist-add-input" type="text" placeholder="Add ticker..." autocomplete="off" spellcheck="false" />
+        <button type="submit" title="Add">+</button>
+      </form>
+      <ul id="watchlist" class="watchlist"></ul>
+      <details class="display-section" id="display-section">
+        <summary>Display</summary>
+        <fieldset class="display-group">
+          <legend>Ichimoku</legend>
+          <label><input type="checkbox" data-display="ichimoku.tenkan"> Tenkan-sen</label>
+          <label><input type="checkbox" data-display="ichimoku.kijun"> Kijun-sen</label>
+          <label><input type="checkbox" data-display="ichimoku.cloud"> Cloud (Senkou A/B)</label>
+          <label><input type="checkbox" data-display="ichimoku.chikou"> Chikou Span</label>
+        </fieldset>
+        <fieldset class="display-group">
+          <legend>Regression Channel</legend>
+          <label><input type="checkbox" data-display="regression.line"> Mean line</label>
+          <label><input type="checkbox" data-display="regression.sd1"> ±1σ</label>
+          <label><input type="checkbox" data-display="regression.sd2"> ±2σ</label>
+          <label><input type="checkbox" data-display="regression.sd3"> ±3σ</label>
+        </fieldset>
+        <fieldset class="display-group">
+          <legend>Volume</legend>
+          <label><input type="checkbox" data-display="volume.bars"> Stacked bars</label>
+        </fieldset>
+      </details>
+      <details class="signal-section" id="signal-section" open>
+        <summary>Signal</summary>
+        <fieldset class="sig-group">
+          <legend>Entry</legend>
+          <label title="Minimum |σ| level to start alerting. Alerts fire on every band ≥ this (1/2/3σ).">Min σ threshold <input type="number" data-sig="sigma_threshold" min="0" step="0.5"></label>
+        </fieldset>
+        <fieldset class="sig-group">
+          <legend>Confluence</legend>
+          <label title="Longs only when slope &gt; 0; shorts only when slope &lt; 0"><input type="checkbox" data-sig="require_trend_alignment"> Require trend alignment</label>
+          <label title="Longs need stoch K &lt; oversold; shorts need K &gt; overbought"><input type="checkbox" data-sig="require_stoch_extreme"> Require stoch RSI extreme</label>
+          <label>Oversold (long) <input type="number" data-sig="stoch_oversold" min="0" max="100" step="1"></label>
+          <label>Overbought (short) <input type="number" data-sig="stoch_overbought" min="0" max="100" step="1"></label>
+        </fieldset>
+      </details>
+      <details class="my-trades-section" id="my-trades-section">
+        <summary>My Trades</summary>
+        <ul id="my-trades-list" class="my-trades-list"></ul>
+        <div id="my-trades-empty" class="my-trades-empty">No trades marked. Use ▲/▼ on the chart toolbar.</div>
+      </details>
+      <div class="alerts-section">
+        <div class="alerts-header">
+          <span>Alerts</span>
+          <button id="alerts-scan-btn" type="button" title="Scan now">⟳</button>
+        </div>
+        <label class="notify-email">
+          Email alerts to
+          <input id="notify-email-input" type="email" placeholder="your@email" autocomplete="off">
+        </label>
+        <ul id="alerts-list" class="alerts-list"></ul>
+      </div>
+    </aside>
+  </div>
+  <div id="trade-modal" class="trade-modal" hidden>
+    <div class="trade-modal-backdrop"></div>
+    <form class="trade-modal-panel" id="trade-modal-form">
+      <div class="trade-modal-title" id="trade-modal-title">Mark Trade</div>
+      <div class="trade-modal-meta" id="trade-modal-meta"></div>
+      <fieldset class="trade-modal-field" id="trade-modal-direction-field">
+        <legend>Direction</legend>
+        <label><input type="radio" name="trade-direction" value="long" checked> Long</label>
+        <label><input type="radio" name="trade-direction" value="short"> Short</label>
+      </fieldset>
+      <label class="trade-modal-field">
+        <span>Size (shares / contracts)</span>
+        <input type="number" id="trade-size" min="0" step="1" required>
+      </label>
+      <label class="trade-modal-field">
+        <span>Note (optional)</span>
+        <input type="text" id="trade-note" maxlength="120" autocomplete="off">
+      </label>
+      <div class="trade-modal-actions">
+        <button type="button" id="trade-cancel">Cancel</button>
+        <button type="submit" id="trade-save">Save</button>
+      </div>
+    </form>
+  </div>
+  <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+  <script src="/chart.js"></script>
+  <script>
+    // Mobile sidebar toggle
+    (function () {
+      const sidebar = document.getElementById("sidebar");
+      const toggle = document.getElementById("sidebar-toggle");
+      const scrim = document.getElementById("sidebar-scrim");
+      if (!sidebar || !toggle || !scrim) return;
+      const open = () => { sidebar.classList.add("open"); scrim.classList.add("visible"); };
+      const close = () => { sidebar.classList.remove("open"); scrim.classList.remove("visible"); };
+      toggle.addEventListener("click", () => {
+        sidebar.classList.contains("open") ? close() : open();
+      });
+      scrim.addEventListener("click", close);
+      // Close after picking a ticker from the watchlist (mobile UX)
+      document.getElementById("watchlist")?.addEventListener("click", (e) => {
+        if (window.matchMedia("(max-width: 720px)").matches &&
+            e.target.closest(".watchlist-item")) {
+          close();
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
