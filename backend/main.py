@@ -190,6 +190,24 @@ def get_history(limit: int = 50) -> dict:
     return {"history": kv.history(limit=limit)}
 
 
+@app.api_route("/api/discover", methods=["GET", "POST"])
+def run_discover_endpoint(request: Request) -> dict:
+    """Cron-driven S&P 500 discovery scan. CRON_SECRET-gated when set."""
+    expected = os.environ.get("CRON_SECRET")
+    if expected:
+        auth = request.headers.get("authorization") or request.headers.get("Authorization", "")
+        if auth != f"Bearer {expected}":
+            raise HTTPException(status_code=401, detail="unauthorized")
+    from backend.discover import run_discovery
+    return run_discovery()
+
+
+@app.get("/api/discoveries")
+def get_discoveries() -> dict:
+    from backend.discover import get_latest
+    return get_latest()
+
+
 @app.api_route("/api/scan", methods=["GET", "POST"])
 def run_rule_scan(request: Request) -> dict:
     """Rule-based scan endpoint. Hit by Vercel Cron (GET with Bearer auth)

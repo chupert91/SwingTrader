@@ -921,6 +921,125 @@ main {
 }
 
 /* ===========================================================
+   Discoveries sidebar section
+   =========================================================== */
+.discoveries-section {
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  flex-shrink: 0;
+  max-height: 50%;
+  overflow-y: auto;
+}
+.discoveries-section > summary {
+  padding: 8px 14px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+  font-weight: 600;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.discoveries-section > summary::-webkit-details-marker { display: none; }
+.discoveries-section > summary::after {
+  content: "▸";
+  margin-left: 6px;
+  transition: transform 0.15s;
+}
+.discoveries-section[open] > summary::after { transform: rotate(90deg); }
+
+.disc-refresh {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 3px;
+  font-size: 12px;
+  line-height: 1;
+  padding: 1px 5px;
+  cursor: pointer;
+  margin-left: auto;
+  margin-right: 6px;
+}
+.disc-refresh:hover { color: var(--accent); border-color: var(--accent); }
+.disc-refresh.scanning { color: var(--accent); animation: spin 1s linear infinite; }
+
+.discoveries-meta {
+  padding: 4px 14px 8px;
+  font-size: 10px;
+  color: var(--muted);
+  font-style: italic;
+}
+
+.discoveries-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.discovery-item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 2px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--border);
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+}
+.discovery-item:hover { background: rgba(88, 166, 255, 0.08); }
+
+.disc-ticker {
+  font-weight: 700;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.disc-dir {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.disc-dir.long { color: var(--up); background: rgba(38,166,154,0.18); }
+.disc-dir.short { color: var(--down); background: rgba(239,83,80,0.18); }
+
+.disc-add {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 3px;
+  grid-row: 1;
+  grid-column: 3;
+}
+.disc-add:hover { color: var(--accent); border-color: var(--accent); }
+
+.disc-stats {
+  grid-column: 1 / span 2;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.discoveries-empty {
+  padding: 14px;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: center;
+  font-style: italic;
+}
+
+/* ===========================================================
    Trade entry modal
    =========================================================== */
 .trade-modal {

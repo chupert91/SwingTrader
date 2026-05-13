@@ -1216,6 +1216,81 @@ scanBtn.addEventListener("click", async () => {
   }
 });
 
+// --- Discoveries panel ---------------------------------------------------
+const discoveriesListEl = document.getElementById("discoveries-list");
+const discoveriesMetaEl = document.getElementById("discoveries-meta");
+const discoveriesRefreshBtn = document.getElementById("discoveries-refresh");
+
+async function refreshDiscoveries() {
+  try {
+    const resp = await fetch("/api/discoveries");
+    if (!resp.ok) return;
+    const data = await resp.json();
+    renderDiscoveries(data);
+  } catch { /* non-fatal */ }
+}
+
+function renderDiscoveries(data) {
+  if (!discoveriesListEl) return;
+  discoveriesListEl.innerHTML = "";
+  const matches = (data && data.matches) || [];
+  if (matches.length === 0) {
+    discoveriesMetaEl.textContent =
+      data && data.as_of_date
+        ? `As of ${data.as_of_date}: no matches. Loosen Signal or wait for next scan.`
+        : "Scans S&P 500 nightly for setups matching your Signal. No data yet — hit ⟳ to run now.";
+    return;
+  }
+  discoveriesMetaEl.textContent =
+    `As of ${data.as_of_date} · ${matches.length} match${matches.length === 1 ? "" : "es"} (of ${data.universe_size || "?"} scanned)`;
+  for (const m of matches) {
+    const li = document.createElement("li");
+    li.className = "discovery-item";
+    const sd = m.sd_position?.toFixed(2) ?? "—";
+    const slope = m.slope_annual_pct != null
+      ? `${m.slope_annual_pct >= 0 ? "+" : ""}${m.slope_annual_pct.toFixed(0)}%`
+      : "—";
+    const k = m.stoch_rsi_k != null ? m.stoch_rsi_k.toFixed(0) : "—";
+    li.innerHTML = `
+      <span class="disc-ticker">${m.ticker}</span>
+      <span class="disc-dir ${m.direction}">${m.direction}</span>
+      <button class="disc-add" type="button" title="Add to watchlist">+</button>
+      <span class="disc-stats">σ ${sd} · trend ${slope} · K ${k} · $${(m.current_price ?? 0).toFixed(2)}</span>
+    `;
+    li.querySelector(".disc-add").addEventListener("click", (e) => {
+      e.stopPropagation();
+      addWatchlistTicker(m.ticker);
+      li.remove();
+    });
+    li.addEventListener("click", (e) => {
+      if (e.target.closest(".disc-add")) return;
+      input.value = m.ticker;
+      loadTicker(m.ticker);
+    });
+    discoveriesListEl.appendChild(li);
+  }
+}
+
+discoveriesRefreshBtn?.addEventListener("click", async (e) => {
+  e.stopPropagation();      // don't toggle the <details>
+  e.preventDefault();
+  discoveriesRefreshBtn.classList.add("scanning");
+  discoveriesMetaEl.textContent = "Scanning S&P 500… this can take 30-60s";
+  try {
+    const resp = await fetch("/api/discover", { method: "POST" });
+    if (resp.ok) {
+      const data = await resp.json();
+      renderDiscoveries(data);
+    } else {
+      discoveriesMetaEl.textContent = `Scan failed: HTTP ${resp.status}`;
+    }
+  } catch (err) {
+    discoveriesMetaEl.textContent = `Scan failed: ${err.message}`;
+  } finally {
+    discoveriesRefreshBtn.classList.remove("scanning");
+  }
+});
+
 // --- Boot ----------------------------------------------------------------
 initDisplayControls();
 applyDisplay();
@@ -1223,6 +1298,7 @@ initSignalForm();
 initNotifyEmailInput();
 refreshAlerts();
 setInterval(refreshAlerts, 60 * 1000);
+refreshDiscoveries();
 
 // Watchlist boots async: fetch server first (so phone edits show up here),
 // then render. Once that's settled, push a fresh signal-rule (with the
