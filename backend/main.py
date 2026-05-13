@@ -3,13 +3,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -32,6 +33,13 @@ VOL_SELL_COLOR = "#ef5350"
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 
 
+# The in-process scheduler (scheduler.run_forever) only makes sense in the
+# long-running local dev server. On Vercel each request is a new container,
+# so we skip the lifespan there and rely on the Vercel Cron entry that hits
+# /api/scan instead.
+_ON_VERCEL = bool(os.environ.get("VERCEL"))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     task = asyncio.create_task(scheduler.run_forever())
@@ -45,7 +53,10 @@ async def lifespan(app: FastAPI):
             pass
 
 
-app = FastAPI(title="Trisigma", lifespan=lifespan)
+app = FastAPI(
+    title="Trisigma",
+    lifespan=None if _ON_VERCEL else lifespan,
+)
 
 
 FETCH_PERIOD = "14mo"  # > 252 trading days so compute_channels has a full fit window
@@ -94,13 +105,18 @@ def put_watchlist(payload: WatchlistPayload) -> dict:
 
 @app.get("/api/alerts")
 def get_alerts(limit: int = 25) -> dict:
-    return {"alerts": state.history(limit=limit)}
+    # KV-backed history — same store the cron writes to. Frontend expects
+    # the key "alerts" so we re-key here from kv's "history" shape.
+    return {"alerts": kv.history(limit=limit)}
 
 
 @app.post("/api/alerts/scan")
-def post_scan() -> dict:
-    fired = scheduler.scan_once()
-    return {"fired": [s.__dict__ for s in fired]}
+def post_manual_scan() -> dict:
+    """Browser-triggered scan from the chart sidebar's ⟳ button.
+
+    Same KV-backed pipeline the cron uses; no auth (this is the UI path)."""
+    from backend.scan import run_scan
+    return run_scan()
 
 
 # ---- Rule-based alert system (new) ----------------------------------------
@@ -174,9 +190,19 @@ def get_history(limit: int = 50) -> dict:
     return {"history": kv.history(limit=limit)}
 
 
-@app.post("/api/scan")
-def post_rule_scan() -> dict:
-    """Trigger the rule-based scan from local. Mirrors api/scan.py."""
+@app.api_route("/api/scan", methods=["GET", "POST"])
+def run_rule_scan(request: Request) -> dict:
+    """Rule-based scan endpoint. Hit by Vercel Cron (GET with Bearer auth)
+    and by manual curl/local dev (POST without auth).
+
+    If CRON_SECRET env var is set, the request must carry
+    `Authorization: Bearer <CRON_SECRET>` (Vercel Cron does this automatically).
+    """
+    expected = os.environ.get("CRON_SECRET")
+    if expected:
+        auth = request.headers.get("authorization") or request.headers.get("Authorization", "")
+        if auth != f"Bearer {expected}":
+            raise HTTPException(status_code=401, detail="unauthorized")
     from backend.scan import run_scan
     return run_scan()
 
