@@ -9,44 +9,9 @@
     }
   ],
   "functions": {
-    "api/scan.py": {
+    "api/**/*.py": {
       "maxDuration": 60,
       "memory": 1024
-    },
-    "api/rules.py": {
-      "maxDuration": 10
-    },
-    "api/history.py": {
-      "maxDuration": 10
-    },
-    "api/alerts.py": {
-      "maxDuration": 10
-    },
-    "api/alerts/scan.py": {
-      "maxDuration": 60,
-      "memory": 1024
-    },
-    "api/watchlist.py": {
-      "maxDuration": 10
-    },
-    "api/chart/[ticker].py": {
-      "maxDuration": 30,
-      "memory": 1024
-    },
-    "api/summary/[ticker].py": {
-      "maxDuration": 30,
-      "memory": 1024
-    },
-    "api/backtest/[ticker].py": {
-      "maxDuration": 30,
-      "memory": 1024
-    },
-    "api/sweep/[ticker].py": {
-      "maxDuration": 60,
-      "memory": 1024
-    },
-    "api/drawings/[ticker].py": {
-      "maxDuration": 10
     }
   },
   "rewrites": [
