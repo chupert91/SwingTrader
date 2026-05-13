@@ -45,7 +45,7 @@ async def lifespan(app: FastAPI):
             pass
 
 
-app = FastAPI(title="SwingTrader Charts", lifespan=lifespan)
+app = FastAPI(title="Trisigma", lifespan=lifespan)
 
 
 FETCH_PERIOD = "14mo"  # > 252 trading days so compute_channels has a full fit window

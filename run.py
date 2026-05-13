@@ -1,4 +1,4 @@
-"""Launch the SwingTrader chart app and open it in the default browser."""
+"""Launch the Trisigma chart app and open it in the default browser."""
 from __future__ import annotations
 
 import threading

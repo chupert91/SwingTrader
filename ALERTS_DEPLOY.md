@@ -21,7 +21,7 @@ git push -u origin main
 
 ### 3. Create the Vercel KV store
 1. In the project dashboard → **Storage** tab → **Create Database** → **KV**
-2. Name it `swingtrader-kv` (or anything)
+2. Name it `trisigma-kv` (or anything)
 3. Click **Connect** → this auto-injects `KV_REST_API_URL`, `KV_REST_API_TOKEN`, `KV_URL`, `KV_REST_API_READ_ONLY_TOKEN` into the project's env vars
 4. **Redeploy** the project so the functions pick up the new env vars
 
