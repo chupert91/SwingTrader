@@ -47,17 +47,34 @@ def using_vercel_kv() -> bool:
     return bool(_kv_url() and _kv_token())
 
 
+def _is_serverless() -> bool:
+    """True on Vercel/Lambda-like environments with a read-only filesystem."""
+    return bool(os.environ.get("VERCEL"))
+
+
 def get_json(key: str, default=None):
     if using_vercel_kv():
         return _kv_get_json(key, default)
+    if _is_serverless():
+        # No KV configured AND no local fs to fall back to. Treat as empty
+        # so the app boots; the user must provision Vercel KV to enable
+        # persistence (Storage tab in the dashboard).
+        return default
     return _local_get_json(key, default)
 
 
 def set_json(key: str, value) -> None:
     if using_vercel_kv():
         _kv_set_json(key, value)
-    else:
-        _local_set_json(key, value)
+        return
+    if _is_serverless():
+        logger.warning(
+            "KV not configured (no KV_REST_API_URL/TOKEN env vars). "
+            "Dropping write to %s — provision Vercel KV in the project's "
+            "Storage tab to enable persistence.", key,
+        )
+        return
+    _local_set_json(key, value)
 
 
 # Vercel KV REST helpers ---------------------------------------------------
