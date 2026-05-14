@@ -13,6 +13,7 @@ const SIGNAL_DEFAULTS = {
   stoch_oversold: 35.0,
   stoch_overbought: 65.0,
   trend_direction: "any",
+  min_avg_volume_m: 10.0,
 };
 
 function loadSignal() {
@@ -138,6 +139,7 @@ async function pushRule() {
       require_stoch_extreme: !!signal.require_stoch_extreme,
       stoch_oversold: Number(signal.stoch_oversold) || 35,
       stoch_overbought: Number(signal.stoch_overbought) || 65,
+      min_avg_volume_m: Number(signal.min_avg_volume_m) || 0,
     };
     const r = await fetch("/api/rules", {
       method: "POST",

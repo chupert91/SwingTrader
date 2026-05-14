@@ -51,6 +51,9 @@ class AlertRule:
     require_stoch_extreme: bool = True
     stoch_oversold: float = 35.0
     stoch_overbought: float = 65.0
+    # Liquidity filter: 20-bar avg dollar volume in millions. 0 = off.
+    # Applies to both watchlist alerts (detect) and discovery scans.
+    min_avg_volume_m: float = 10.0
 
     @classmethod
     def optimized_default(cls, notify_email: str = "") -> "AlertRule":
@@ -71,6 +74,7 @@ class AlertRule:
             require_stoch_extreme=True,
             stoch_oversold=35.0,
             stoch_overbought=65.0,
+            min_avg_volume_m=10.0,
         )
 
     def to_dict(self) -> dict:
@@ -98,6 +102,7 @@ class AlertRule:
             require_stoch_extreme=bool(data.get("require_stoch_extreme", True)),
             stoch_oversold=float(data.get("stoch_oversold", 35.0)),
             stoch_overbought=float(data.get("stoch_overbought", 65.0)),
+            min_avg_volume_m=float(data.get("min_avg_volume_m", 10.0)),
         )
 
 
@@ -149,6 +154,12 @@ def detect(rule: AlertRule, ticker: str, df: pd.DataFrame) -> list[RuleSignal]:
     sd_cur = cur.get("sd_position")
     if pd.isna(sd_prev) or pd.isna(sd_cur):
         return []
+
+    # Liquidity gate: skip thinly traded names (rule-configurable, 0 = off).
+    if rule.min_avg_volume_m > 0:
+        avg_dv_m = _avg_dollar_volume_m(prepared)
+        if avg_dv_m < rule.min_avg_volume_m:
+            return []
 
     trend_pct = _annualized_trend_pct(prepared)
     slope = cur.get("slope")
@@ -209,6 +220,18 @@ def detect(rule: AlertRule, ticker: str, df: pd.DataFrame) -> list[RuleSignal]:
                 confirmations=confirmations,
             ))
     return signals
+
+
+def _avg_dollar_volume_m(prepared: pd.DataFrame, window: int = 20) -> float:
+    """Average dollar volume (close × volume) over the last `window` bars,
+    expressed in millions. Returns 0.0 if there's not enough data."""
+    if "volume" not in prepared.columns or len(prepared) < window:
+        return 0.0
+    tail = prepared.iloc[-window:]
+    dollar_vol = (tail["close"] * tail["volume"]).mean()
+    if pd.isna(dollar_vol):
+        return 0.0
+    return float(dollar_vol) / 1_000_000.0
 
 
 def _annualized_trend_pct(prepared: pd.DataFrame) -> float:

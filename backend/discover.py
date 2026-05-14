@@ -52,6 +52,16 @@ def _check_current_state(rule: AlertRule, ticker: str, df: pd.DataFrame) -> dict
     if sd is None or pd.isna(sd):
         return None
 
+    # Liquidity gate. Compute average dollar volume over last 20 bars.
+    avg_dv_m = 0.0
+    if "volume" in prepared.columns and len(prepared) >= 20:
+        tail = prepared.iloc[-20:]
+        dv = (tail["close"] * tail["volume"]).mean()
+        if not pd.isna(dv):
+            avg_dv_m = float(dv) / 1_000_000.0
+    if rule.min_avg_volume_m > 0 and avg_dv_m < rule.min_avg_volume_m:
+        return None
+
     threshold = abs(float(rule.entry_sigma))
     direction: Literal["long", "short"] | None = None
 
@@ -89,6 +99,7 @@ def _check_current_state(rule: AlertRule, ticker: str, df: pd.DataFrame) -> dict
         "sd_position": float(sd),
         "slope_annual_pct": slope_annual_pct,
         "stoch_rsi_k": float(k_val) if k_val is not None and not pd.isna(k_val) else None,
+        "avg_dollar_volume_m": avg_dv_m,
     }
 
 
@@ -147,6 +158,7 @@ def run_discovery(top_n: int = 30) -> dict:
             "stoch_oversold": rule.stoch_oversold,
             "stoch_overbought": rule.stoch_overbought,
             "side": rule.side,
+            "min_avg_volume_m": rule.min_avg_volume_m,
         },
         "matches": matches,
         "fetched_count": len(bars_by_ticker),

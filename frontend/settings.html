@@ -81,6 +81,11 @@
         <summary>Show advanced settings</summary>
         <div class="bt-grid set-grid">
           <label>
+            Min daily dollar volume ($M)
+            <input type="number" data-set="min_avg_volume_m" min="0" step="1">
+            <span class="set-help">Skip tickers whose 20-bar average daily dollar volume is below this many millions. Filters out thinly-traded names you couldn't exit cleanly. Set to 0 to disable.</span>
+          </label>
+          <label>
             Slope direction filter
             <select data-set="trend_direction">
               <option value="any">Any</option>

@@ -277,6 +277,7 @@ const SIGNAL_DEFAULTS = {
   stoch_oversold: 35.0,
   stoch_overbought: 65.0,
   trend_direction: "any",
+  min_avg_volume_m: 10.0,
 };
 
 function loadSignal() {
@@ -330,6 +331,7 @@ function buildSignalRule() {
     require_stoch_extreme: !!signal.require_stoch_extreme,
     stoch_oversold: Number(signal.stoch_oversold) || 35,
     stoch_overbought: Number(signal.stoch_overbought) || 65,
+    min_avg_volume_m: Number(signal.min_avg_volume_m) || 0,
   };
 }
 
@@ -1254,11 +1256,14 @@ function renderDiscoveries(data) {
       ? `${m.slope_annual_pct >= 0 ? "+" : ""}${m.slope_annual_pct.toFixed(0)}%`
       : "—";
     const k = m.stoch_rsi_k != null ? m.stoch_rsi_k.toFixed(0) : "—";
+    const vol = m.avg_dollar_volume_m != null
+      ? `${m.avg_dollar_volume_m >= 1000 ? (m.avg_dollar_volume_m / 1000).toFixed(1) + "B" : m.avg_dollar_volume_m.toFixed(0) + "M"}`
+      : "—";
     li.innerHTML = `
       <span class="disc-ticker">${m.ticker}</span>
       <span class="disc-dir ${m.direction}">${m.direction}</span>
       <button class="disc-add" type="button" title="Add to watchlist" aria-label="Add to watchlist">${ICON_PLUS}</button>
-      <span class="disc-stats">σ ${sd} · trend ${slope} · K ${k} · $${(m.current_price ?? 0).toFixed(2)}</span>
+      <span class="disc-stats">σ ${sd} · K ${k} · $${(m.current_price ?? 0).toFixed(2)} · vol $${vol}</span>
     `;
     li.querySelector(".disc-add").addEventListener("click", (e) => {
       e.stopPropagation();

@@ -146,6 +146,7 @@ class RulePayload(BaseModel):
     require_stoch_extreme: bool = True
     stoch_oversold: float = 35.0
     stoch_overbought: float = 65.0
+    min_avg_volume_m: float = 10.0
 
 
 @app.post("/api/rules")
