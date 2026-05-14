@@ -95,6 +95,31 @@ html, body {
 .summary .value.pos { color: var(--up); }
 .summary .value.neg { color: var(--down); }
 
+.live-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 9px;
+  letter-spacing: 0.4px;
+  vertical-align: middle;
+  font-weight: 700;
+  text-transform: none;
+}
+.live-badge.live {
+  color: var(--up);
+  background: rgba(38, 166, 154, 0.18);
+  animation: live-pulse 2.5s ease-in-out infinite;
+}
+.live-badge.delayed {
+  color: var(--muted);
+  background: rgba(139, 148, 158, 0.18);
+}
+@keyframes live-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
 .legend {
   margin-left: auto;
   display: flex;

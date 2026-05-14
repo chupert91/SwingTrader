@@ -337,6 +337,25 @@ def post_backtest(ticker: str, payload: BacktestConfigPayload) -> dict:
     return result
 
 
+@app.get("/api/quote/{ticker}")
+def get_quote(ticker: str) -> dict:
+    """Latest IEX trade for the symbol (Alpaca free tier).
+
+    Returns {ticker, price, timestamp, source}. 404 if Alpaca isn't
+    configured or the symbol has no recent trade data.
+    """
+    from backend import alpaca
+    if not alpaca.is_configured():
+        raise HTTPException(status_code=503, detail="alpaca credentials not configured")
+    try:
+        result = alpaca.latest_trade(ticker)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"upstream error: {exc}")
+    if result is None:
+        raise HTTPException(status_code=404, detail="no recent trade")
+    return {"ticker": ticker.upper(), **result, "source": "alpaca-iex"}
+
+
 @app.get("/api/summary/{ticker}")
 def get_summary(ticker: str, period: str = FETCH_PERIOD):
     df = _prepare(ticker, period)

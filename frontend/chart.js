@@ -200,6 +200,7 @@ async function loadTicker(ticker) {
   if (!ticker) return;
   setStatus(`Loading ${ticker}...`);
   setActiveTicker(ticker);
+  stopQuotePolling();
   try {
     // Fetch chart + drawings in parallel; the drawings step also handles
     // first-time migration from localStorage cache → server.
@@ -214,6 +215,7 @@ async function loadTicker(ticker) {
     const data = await resp.json();
     renderChart(data);
     setStatus(null);
+    startQuotePolling();
   } catch (err) {
     setStatus(`Error: ${err.message}`, true);
   }
@@ -253,12 +255,105 @@ function renderChart(data) {
 function renderSummary(ticker, s) {
   const sdClass = s.sd_position == null ? "" : s.sd_position > 1 ? "neg" : s.sd_position < -1 ? "pos" : "";
   summaryEl.innerHTML = `
-    <div><div class="label">${ticker}</div><div class="value">$${fmt(s.current_price, 2)}</div></div>
+    <div><div class="label">${ticker} <span id="live-badge" class="live-badge" hidden></span></div><div class="value" id="summary-price">$${fmt(s.current_price, 2)}</div></div>
     <div><div class="label">SD Position</div><div class="value ${sdClass}">${fmt(s.sd_position, 2)}σ</div></div>
     <div><div class="label">R²</div><div class="value">${fmt(s.r_squared, 3)}</div></div>
     <div><div class="label">Trend (annual)</div><div class="value ${s.slope_annual_pct > 0 ? "pos" : "neg"}">${fmt(s.slope_annual_pct, 1)}%</div></div>
   `;
 }
+
+// --- Live quote polling (Alpaca IEX free tier) --------------------------
+// Polls /api/quote/{ticker} every 30s while the page is visible and the
+// US market is open. Updates the summary price + LIVE indicator without
+// disturbing the chart's bar data or any drawings.
+
+const QUOTE_POLL_MS = 30_000;
+let _quoteTimer = null;
+let _quoteLastTick = 0;  // ms timestamp of last successful poll
+
+function _inUSMarketHours() {
+  // Use Intl.DateTimeFormat to read the current hour/minute/weekday in ET,
+  // which auto-handles DST. Holidays (e.g. Thanksgiving) not filtered —
+  // we'd just waste a poll, no harm done.
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      weekday: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).formatToParts(new Date());
+    const m = Object.fromEntries(parts.map(p => [p.type, p.value]));
+    if (m.weekday === "Sat" || m.weekday === "Sun") return false;
+    const minutes = parseInt(m.hour, 10) * 60 + parseInt(m.minute, 10);
+    return minutes >= 9 * 60 + 30 && minutes < 16 * 60;
+  } catch { return false; }
+}
+
+function _setLiveBadge(state) {
+  const el = document.getElementById("live-badge");
+  if (!el) return;
+  if (state === "off") {
+    el.hidden = true;
+    el.className = "live-badge";
+    el.textContent = "";
+    return;
+  }
+  el.hidden = false;
+  el.className = `live-badge ${state}`;
+  el.textContent = state === "live" ? "● LIVE" : "● DELAYED";
+}
+
+async function _pollOnce() {
+  if (!activeTicker) return;
+  if (document.visibilityState !== "visible") return;
+  if (!_inUSMarketHours()) {
+    _setLiveBadge("delayed");
+    return;
+  }
+  try {
+    const resp = await fetch(`/api/quote/${encodeURIComponent(activeTicker)}`);
+    if (!resp.ok) {
+      // 503 = no Alpaca creds; 404 = no trade; 502 = upstream — all soft-fail.
+      _setLiveBadge("delayed");
+      return;
+    }
+    const data = await resp.json();
+    _quoteLastTick = Date.now();
+    const priceEl = document.getElementById("summary-price");
+    if (priceEl && typeof data.price === "number") {
+      priceEl.textContent = `$${data.price.toFixed(2)}`;
+    }
+    _setLiveBadge("live");
+  } catch {
+    _setLiveBadge("delayed");
+  }
+}
+
+function startQuotePolling() {
+  stopQuotePolling();
+  // Fire one immediately, then on interval. The first call will populate
+  // the badge state before the user has to wait 30s.
+  _pollOnce();
+  _quoteTimer = setInterval(_pollOnce, QUOTE_POLL_MS);
+}
+
+function stopQuotePolling() {
+  if (_quoteTimer) clearInterval(_quoteTimer);
+  _quoteTimer = null;
+  _setLiveBadge("off");
+}
+
+// Restart polling when the page becomes visible again (tab switch / phone
+// wake). When hidden, stop the interval entirely to save Vercel function
+// invocations.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && activeTicker) {
+    startQuotePolling();
+  } else {
+    stopQuotePolling();
+  }
+});
 
 function fmt(v, digits) {
   if (v == null || Number.isNaN(v)) return "—";
