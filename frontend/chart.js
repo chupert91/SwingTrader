@@ -290,44 +290,20 @@ function _todayET() {
 }
 
 function _applyLivePriceToCandle(price) {
-  // Temporary debug logging — remove once live candle behavior is verified.
-  console.warn("[live] applyLivePriceToCandle", {
-    price,
-    typeofPrice: typeof price,
-    lastCandle: _lastCandle ? { ...(_lastCandle) } : null,
-    today: _todayET(),
-  });
-  if (!_lastCandle || typeof price !== "number") {
-    console.warn("[live] skip — no lastCandle or non-numeric price");
-    return;
-  }
+  if (!_lastCandle || typeof price !== "number") return;
   const today = _todayET();
-  if (!today) {
-    console.warn("[live] skip — _todayET failed");
-    return;
-  }
+  if (!today) return;
+  // Always keep _lastCandle.time as a string. Lightweight Charts' update()
+  // mutates the input's `time` field into its internal BusinessDay object
+  // representation, so we pass a shallow copy and keep our canonical string.
   if (_lastCandle.time === today) {
     _lastCandle.high = Math.max(_lastCandle.high, price);
     _lastCandle.low = Math.min(_lastCandle.low, price);
     _lastCandle.close = price;
-    console.warn("[live] updating today's bar", { ..._lastCandle });
-    try {
-      candleSeries.update(_lastCandle);
-      console.warn("[live] candleSeries.update succeeded");
-    } catch (err) {
-      console.error("[live] candleSeries.update threw", err);
-    }
+    try { candleSeries.update({ ..._lastCandle }); } catch {}
   } else if (String(_lastCandle.time) < today) {
     _lastCandle = { time: today, open: price, high: price, low: price, close: price };
-    console.warn("[live] appending new bar for today", { ..._lastCandle });
-    try {
-      candleSeries.update(_lastCandle);
-      console.warn("[live] append succeeded");
-    } catch (err) {
-      console.error("[live] candleSeries.update (append) threw", err);
-    }
-  } else {
-    console.warn("[live] skip — lastCandle.time > today", { lastTime: _lastCandle.time, today });
+    try { candleSeries.update({ ..._lastCandle }); } catch {}
   }
 }
 
