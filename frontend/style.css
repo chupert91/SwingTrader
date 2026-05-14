@@ -144,11 +144,14 @@ html, body {
   background: var(--panel);
   border: 1px solid var(--border);
   color: var(--text);
-  font-size: 18px;
   line-height: 1;
   cursor: pointer;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  padding: 0;
+  align-items: center;
+  justify-content: center;
 }
+.drawing-rail-toggle svg { display: block; }
 .drawing-rail-toggle:active { transform: scale(0.95); }
 .drawing-rail-toggle.active { color: var(--accent); border-color: var(--accent); }
 
@@ -1550,7 +1553,7 @@ main {
     transition: transform 0.2s ease-out;
   }
   .drawing-rail.open { transform: translateX(0); }
-  .drawing-rail-toggle { display: block; }
+  .drawing-rail-toggle { display: flex; }
 
   .sidebar {
     position: fixed;
