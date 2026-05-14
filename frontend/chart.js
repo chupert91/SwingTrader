@@ -28,6 +28,7 @@ const baseOptions = {
     background: { type: "solid", color: "#0e1117" },
     textColor: COLORS.text,
     fontSize: 11,
+    attributionLogo: false,
   },
   grid: {
     vertLines: { color: COLORS.grid },
