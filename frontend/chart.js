@@ -18,6 +18,11 @@ const COLORS = {
   chikou: "#9b59b6",
 };
 
+// Inline SVG icons used across JS-rendered templates. Stroke-only so they
+// inherit the surrounding text color via currentColor.
+const ICON_X = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
+const ICON_PLUS = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`;
+
 const baseOptions = {
   layout: {
     background: { type: "solid", color: "#0e1117" },
@@ -1000,7 +1005,7 @@ function renderTradesList() {
       <span class="mt-kind ${kindClass}">${kindLabel}</span>
       <span class="mt-detail">${detail}</span>
       ${plHtml}
-      <button class="mt-delete" type="button" title="Delete">×</button>
+      <button class="mt-delete" type="button" title="Delete" aria-label="Delete">${ICON_X}</button>
       <span class="mt-sub">${sub}</span>
     `;
     li.querySelector(".mt-delete").addEventListener("click", () => deleteTrade(t.id));
@@ -1086,7 +1091,7 @@ function renderWatchlist() {
     li.innerHTML = `
       <div class="wl-row1">
         <span class="wl-ticker">${ticker}</span>
-        <button class="wl-remove" type="button" title="Remove">×</button>
+        <button class="wl-remove" type="button" title="Remove" aria-label="Remove">${ICON_X}</button>
       </div>
       <div class="wl-row2">
         <span class="wl-price">…</span>
@@ -1271,7 +1276,7 @@ function renderDiscoveries(data) {
     li.innerHTML = `
       <span class="disc-ticker">${m.ticker}</span>
       <span class="disc-dir ${m.direction}">${m.direction}</span>
-      <button class="disc-add" type="button" title="Add to watchlist">+</button>
+      <button class="disc-add" type="button" title="Add to watchlist" aria-label="Add to watchlist">${ICON_PLUS}</button>
       <span class="disc-stats">σ ${sd} · trend ${slope} · K ${k} · $${(m.current_price ?? 0).toFixed(2)}</span>
     `;
     li.querySelector(".disc-add").addEventListener("click", (e) => {

@@ -99,7 +99,7 @@
           <input type="checkbox" data-action="toggle" ${rule.enabled ? "checked" : ""} />
         </label>
         <input class="rule-name" data-action="rename" value="${escapeHtml(rule.name)}" />
-        <button class="rule-delete" data-action="delete" title="Delete rule">×</button>
+        <button class="rule-delete" data-action="delete" title="Delete rule" aria-label="Delete rule"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
       </div>
       <div class="rule-row2">
         <span class="rule-side rule-side-${rule.side}">${rule.side}</span>

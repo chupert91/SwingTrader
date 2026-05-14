@@ -106,7 +106,12 @@
       <div class="sidebar-header">Watchlist</div>
       <form id="watchlist-add-form" class="watchlist-add">
         <input id="watchlist-add-input" type="text" placeholder="Add ticker..." autocomplete="off" spellcheck="false" />
-        <button type="submit" title="Add">+</button>
+        <button type="submit" title="Add" aria-label="Add ticker">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true">
+            <line x1="12" y1="5" x2="12" y2="19"/>
+            <line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+        </button>
       </form>
       <ul id="watchlist" class="watchlist"></ul>
       <details class="display-section" id="display-section">
