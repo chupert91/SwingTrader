@@ -276,6 +276,7 @@ const SIGNAL_DEFAULTS = {
   require_stoch_extreme: true,
   stoch_oversold: 35.0,
   stoch_overbought: 65.0,
+  trend_direction: "any",
 };
 
 function loadSignal() {
@@ -293,22 +294,8 @@ function saveSignal(sig) {
 }
 
 let signal = loadSignal();
-
-function initSignalForm() {
-  for (const input of document.querySelectorAll("[data-sig]")) {
-    const key = input.dataset.sig;
-    const val = signal[key];
-    if (input.type === "checkbox") input.checked = !!val;
-    else input.value = val == null ? "" : val;
-    input.addEventListener("change", () => {
-      if (input.type === "checkbox") signal[key] = input.checked;
-      else if (input.value === "") signal[key] = null;
-      else signal[key] = Number(input.value);
-      saveSignal(signal);
-      scheduleSignalRuleSync();
-    });
-  }
-}
+// Signal config is edited on /settings.html now. chart.js just reads the
+// localStorage that page writes — there's no sidebar form to wire up here.
 
 // --- Canonical alert-rule sync ------------------------------------------
 // The server-side scanner reads from KV. We push a single rule (id "ui-signal")
@@ -339,7 +326,7 @@ function buildSignalRule() {
     leverage: 5.0,
     enabled: true,
     notify_email: loadNotifyEmail(),
-    trend_direction: "any",
+    trend_direction: signal.trend_direction || "any",
     require_stoch_extreme: !!signal.require_stoch_extreme,
     stoch_oversold: Number(signal.stoch_oversold) || 35,
     stoch_overbought: Number(signal.stoch_overbought) || 65,
@@ -362,15 +349,8 @@ async function syncSignalRule() {
   } catch (err) { /* non-fatal */ }
 }
 
-function initNotifyEmailInput() {
-  const el = document.getElementById("notify-email-input");
-  if (!el) return;
-  el.value = loadNotifyEmail();
-  el.addEventListener("change", () => {
-    saveNotifyEmail(el.value.trim());
-    scheduleSignalRuleSync();
-  });
-}
+// Notify email is now edited on /settings.html; chart.js only reads it
+// from localStorage when building the canonical AlertRule.
 
 // Backtest markers state — kept so applyAllMarkers stays uniform with the
 // manual-trade marker pipeline. The main page no longer fires a backtest,
@@ -1317,8 +1297,6 @@ discoveriesRefreshBtn?.addEventListener("click", async (e) => {
 // --- Boot ----------------------------------------------------------------
 initDisplayControls();
 applyDisplay();
-initSignalForm();
-initNotifyEmailInput();
 refreshAlerts();
 setInterval(refreshAlerts, 60 * 1000);
 refreshDiscoveries();

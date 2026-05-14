@@ -18,6 +18,7 @@
       <button type="submit">Load</button>
     </form>
     <div id="summary" class="summary"></div>
+    <a class="topbar-link" href="/settings.html">Settings →</a>
     <a class="topbar-link" href="/backtest.html">Backtest →</a>
     <div class="legend" id="legend">
       <span class="legend-item"><i class="sw-reg"></i>Reg</span>
@@ -135,20 +136,6 @@
           <label><input type="checkbox" data-display="volume.bars"> Stacked bars</label>
         </fieldset>
       </details>
-      <details class="signal-section" id="signal-section" open>
-        <summary>Signal</summary>
-        <fieldset class="sig-group">
-          <legend>Entry</legend>
-          <label title="Minimum |σ| level to start alerting. Alerts fire on every band ≥ this (1/2/3σ).">Min σ threshold <input type="number" data-sig="sigma_threshold" min="0" step="0.5"></label>
-        </fieldset>
-        <fieldset class="sig-group">
-          <legend>Confluence</legend>
-          <label title="Longs only when slope &gt; 0; shorts only when slope &lt; 0"><input type="checkbox" data-sig="require_trend_alignment"> Require trend alignment</label>
-          <label title="Longs need stoch K &lt; oversold; shorts need K &gt; overbought"><input type="checkbox" data-sig="require_stoch_extreme"> Require stoch RSI extreme</label>
-          <label>Oversold (long) <input type="number" data-sig="stoch_oversold" min="0" max="100" step="1"></label>
-          <label>Overbought (short) <input type="number" data-sig="stoch_overbought" min="0" max="100" step="1"></label>
-        </fieldset>
-      </details>
       <details class="my-trades-section" id="my-trades-section">
         <summary>My Trades</summary>
         <ul id="my-trades-list" class="my-trades-list"></ul>
@@ -178,10 +165,6 @@
             </svg>
           </button>
         </div>
-        <label class="notify-email">
-          Email alerts to
-          <input id="notify-email-input" type="email" placeholder="your@email" autocomplete="off">
-        </label>
         <ul id="alerts-list" class="alerts-list"></ul>
       </div>
     </aside>

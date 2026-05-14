@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0e1117" />
+  <title>Trisigma — Settings</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body class="page-backtest">
+  <header class="topbar">
+    <div class="brand">Trisigma</div>
+    <a class="topbar-link" href="/">← Back to chart</a>
+    <a class="topbar-link" href="/backtest.html">Backtest</a>
+    <div class="bt-page-title">Settings</div>
+  </header>
+  <main class="bt-main">
+
+    <section class="bt-panel">
+      <h2 class="bt-panel-title">Signal</h2>
+      <p class="bt-hint">Defines what triggers an alert. Applies to both long and short crosses (mirrored).</p>
+      <div class="bt-grid set-grid">
+        <label>
+          Min σ threshold
+          <input type="number" data-set="sigma_threshold" min="0" step="0.5">
+          <span class="set-help">Alerts fire on every σ band (1/2/3) at or beyond this magnitude.</span>
+        </label>
+        <label class="set-checkbox">
+          <span class="set-check-row">
+            <input type="checkbox" data-set="require_trend_alignment">
+            <span>Require trend alignment</span>
+          </span>
+          <span class="set-help">Longs only when slope &gt; 0; shorts only when slope &lt; 0.</span>
+        </label>
+        <label class="set-checkbox">
+          <span class="set-check-row">
+            <input type="checkbox" data-set="require_stoch_extreme">
+            <span>Require stoch RSI extreme</span>
+          </span>
+          <span class="set-help">Longs need K below oversold; shorts need K above overbought.</span>
+        </label>
+        <label>
+          Oversold (long entries)
+          <input type="number" data-set="stoch_oversold" min="0" max="100" step="1">
+          <span class="set-help">Stoch K must be at or below this value to qualify a long.</span>
+        </label>
+        <label>
+          Overbought (short entries)
+          <input type="number" data-set="stoch_overbought" min="0" max="100" step="1">
+          <span class="set-help">Stoch K must be at or above this value to qualify a short.</span>
+        </label>
+      </div>
+    </section>
+
+    <section class="bt-panel">
+      <h2 class="bt-panel-title">Notifications</h2>
+      <p class="bt-hint">Where to send alerts when the signal fires. Leave email blank to record alerts in the sidebar only.</p>
+      <div class="bt-grid set-grid">
+        <label>
+          Email
+          <input type="email" data-set="notify_email" placeholder="you@example.com">
+          <span class="set-help">Requires RESEND_API_KEY + ALERT_FROM env vars set in Vercel.</span>
+        </label>
+      </div>
+    </section>
+
+    <section class="bt-panel">
+      <h2 class="bt-panel-title">Universe</h2>
+      <p class="bt-hint">Tickers scanned on each scheduled run. Manage from the chart watchlist.</p>
+      <div id="set-universe-list" class="set-universe-list">Loading…</div>
+      <div class="bt-hint" style="margin-top:8px;">
+        <a href="/">Manage watchlist on chart →</a>
+        ·
+        Discovery scan over S&amp;P 500 also runs nightly (excludes tickers already on your watchlist).
+      </div>
+    </section>
+
+    <section class="bt-panel">
+      <h2 class="bt-panel-title">Advanced</h2>
+      <details class="bt-advanced">
+        <summary>Show advanced settings</summary>
+        <div class="bt-grid set-grid">
+          <label>
+            Slope direction filter
+            <select data-set="trend_direction">
+              <option value="any">Any</option>
+              <option value="up">Up only (slope &gt; 0)</option>
+              <option value="down">Down only (slope &lt; 0)</option>
+            </select>
+            <span class="set-help">Independent of trade side. Useful for restricting alerts to one regime only (e.g. only fire during uptrends).</span>
+          </label>
+        </div>
+      </details>
+    </section>
+
+    <div id="set-status" class="set-status" hidden></div>
+  </main>
+  <script src="/settings.js"></script>
+</body>
+</html>
