@@ -134,14 +134,14 @@ html, body {
 /* Mobile-only toggle button for the drawing rail (see <=720px media query). */
 .drawing-rail-toggle {
   display: none;
-  position: fixed;
-  top: 100px;
-  left: 8px;
-  z-index: 7;
-  width: 36px;
-  height: 36px;
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  z-index: 5;
+  width: 34px;
+  height: 34px;
   border-radius: 50%;
-  background: var(--panel);
+  background: rgba(14, 17, 23, 0.85);
   border: 1px solid var(--border);
   color: var(--text);
   line-height: 1;
@@ -150,8 +150,9 @@ html, body {
   padding: 0;
   align-items: center;
   justify-content: center;
+  backdrop-filter: blur(4px);
 }
-.drawing-rail-toggle svg { display: block; }
+.drawing-rail-toggle svg { display: block; width: 18px; height: 18px; }
 .drawing-rail-toggle:active { transform: scale(0.95); }
 .drawing-rail-toggle.active { color: var(--accent); border-color: var(--accent); }
 
@@ -1295,12 +1296,15 @@ main {
   letter-spacing: 0.5px;
 }
 
+/* /backtest and /settings use natural document scroll — override the
+   chart page's overflow:hidden body. */
+body.page-backtest { overflow: auto; }
+
 .bt-main {
   max-width: 920px;
   margin: 0 auto;
   padding: 20px;
-  height: calc(100vh - 52px);
-  overflow-y: auto;
+  min-height: calc(100vh - 52px);
   display: flex;
   flex-direction: column;
   gap: 16px;
