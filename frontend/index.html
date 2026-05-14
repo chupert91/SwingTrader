@@ -40,13 +40,50 @@
     </button>
     <aside class="drawing-rail" id="drawing-rail">
       <div class="drawing-toolbar" id="drawing-toolbar">
-        <button data-tool="cursor" title="Cursor — no drawing" class="active">⌖</button>
-        <button data-tool="hline" title="Horizontal line — click to place">─</button>
-        <button data-tool="trend" title="Trend line — click two points">╱</button>
-        <button data-tool="fib" title="Fibonacci retracement — click high and low">Φ</button>
-        <button data-tool="entry" title="Mark trade entry — click to place" class="tool-entry">▲</button>
-        <button data-tool="exit" title="Mark trade exit — click to place" class="tool-exit">▼</button>
-        <button data-tool="clear" title="Clear all drawings on this ticker">×</button>
+        <button data-tool="cursor" title="Cursor — no drawing" class="active" aria-label="Cursor">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M5 3l14 8-6 2-2 6z"/>
+          </svg>
+        </button>
+        <button data-tool="hline" title="Horizontal line — click to place" aria-label="Horizontal line">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <line x1="4" y1="12" x2="20" y2="12"/>
+          </svg>
+        </button>
+        <button data-tool="trend" title="Trend line — click two points" aria-label="Trend line">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="5" y1="19" x2="19" y2="5"/>
+            <circle cx="5" cy="19" r="1.5" fill="currentColor" stroke="none"/>
+            <circle cx="19" cy="5" r="1.5" fill="currentColor" stroke="none"/>
+          </svg>
+        </button>
+        <button data-tool="fib" title="Fibonacci retracement — click high and low" aria-label="Fibonacci">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+            <line x1="4" y1="5" x2="20" y2="5"/>
+            <line x1="4" y1="10" x2="20" y2="10"/>
+            <line x1="4" y1="14" x2="20" y2="14"/>
+            <line x1="4" y1="19" x2="20" y2="19"/>
+          </svg>
+        </button>
+        <button data-tool="entry" title="Mark trade entry — click to place" class="tool-entry" aria-label="Mark entry">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 19V5"/>
+            <path d="M5 12l7-7 7 7"/>
+          </svg>
+        </button>
+        <button data-tool="exit" title="Mark trade exit — click to place" class="tool-exit" aria-label="Mark exit">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 5v14"/>
+            <path d="M19 12l-7 7-7-7"/>
+          </svg>
+        </button>
+        <button data-tool="clear" title="Clear all drawings on this ticker" aria-label="Clear drawings">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 6h18"/>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>
+            <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+          </svg>
+        </button>
       </div>
     </aside>
     <main>
@@ -113,14 +150,28 @@
         <div id="my-trades-empty" class="my-trades-empty">No trades marked. Use ▲/▼ on the chart toolbar.</div>
       </details>
       <details class="discoveries-section" id="discoveries-section">
-        <summary>Discoveries <button id="discoveries-refresh" type="button" title="Run scan now" class="disc-refresh">⟳</button></summary>
+        <summary>Discoveries <button id="discoveries-refresh" type="button" title="Run scan now" class="disc-refresh" aria-label="Run scan now">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 12a9 9 0 0 1 15.5-6.3L21 8"/>
+            <path d="M21 3v5h-5"/>
+            <path d="M21 12a9 9 0 0 1-15.5 6.3L3 16"/>
+            <path d="M8 21H3v-5"/>
+          </svg>
+        </button></summary>
         <div id="discoveries-meta" class="discoveries-meta">Scans S&amp;P 500 nightly for setups matching your Signal.</div>
         <ul id="discoveries-list" class="discoveries-list"></ul>
       </details>
       <div class="alerts-section">
         <div class="alerts-header">
           <span>Alerts</span>
-          <button id="alerts-scan-btn" type="button" title="Scan now">⟳</button>
+          <button id="alerts-scan-btn" type="button" title="Scan now" aria-label="Scan now">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M3 12a9 9 0 0 1 15.5-6.3L21 8"/>
+              <path d="M21 3v5h-5"/>
+              <path d="M21 12a9 9 0 0 1-15.5 6.3L3 16"/>
+              <path d="M8 21H3v-5"/>
+            </svg>
+          </button>
         </div>
         <label class="notify-email">
           Email alerts to

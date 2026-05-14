@@ -655,11 +655,14 @@ html, body {
   border: 1px solid var(--border);
   color: var(--muted);
   border-radius: 3px;
-  font-size: 13px;
   line-height: 1;
-  padding: 2px 6px;
+  padding: 3px 5px;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
+.alerts-header button svg { width: 14px; height: 14px; display: block; }
 
 .alerts-header button:hover { color: var(--accent); border-color: var(--accent); }
 .alerts-header button.scanning { color: var(--accent); animation: spin 1s linear infinite; }
@@ -804,7 +807,6 @@ main {
   width: 28px;
   height: 28px;
   cursor: pointer;
-  font-size: 15px;
   line-height: 1;
   display: flex;
   align-items: center;
@@ -812,6 +814,12 @@ main {
   border-radius: 3px;
   padding: 0;
   user-select: none;
+}
+.drawing-toolbar button svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+  flex-shrink: 0;
 }
 
 .drawing-toolbar button:hover {
@@ -981,13 +989,16 @@ main {
   border: 1px solid var(--border);
   color: var(--muted);
   border-radius: 3px;
-  font-size: 12px;
   line-height: 1;
-  padding: 1px 5px;
+  padding: 3px 5px;
   cursor: pointer;
   margin-left: auto;
   margin-right: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
+.disc-refresh svg { width: 14px; height: 14px; display: block; }
 .disc-refresh:hover { color: var(--accent); border-color: var(--accent); }
 .disc-refresh.scanning { color: var(--accent); animation: spin 1s linear infinite; }
 
