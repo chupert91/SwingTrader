@@ -913,7 +913,9 @@ function deleteTrade(id) {
 // around an active line starts a drag; mousemove updates the line live;
 // release saves the new price to the trade record.
 
-// Map of trade.id -> { entry: priceLineHandle, stop: ..., target: ... }
+// Map of trade.id -> { entry: lineSeriesHandle, stop: ..., target: ... }
+// Each line is a 2-point LineSeries from (entry_time, price) to the right
+// edge of the chart, so it doesn't bleed back into pre-entry history.
 const _tradeLevelLines = new Map();
 
 const LEVEL_LINE_COLORS = {
@@ -924,32 +926,45 @@ const LEVEL_LINE_COLORS = {
 
 function _clearTradeLevelLines() {
   for (const handles of _tradeLevelLines.values()) {
-    for (const h of Object.values(handles)) {
-      try { candleSeries.removePriceLine(h); } catch {}
+    for (const s of Object.values(handles)) {
+      try { priceChart.removeSeries(s); } catch {}
     }
   }
   _tradeLevelLines.clear();
 }
 
+function _makeTradeLevelSeries(t, kind, price) {
+  const dash = kind === "entry";
+  const series = priceChart.addLineSeries({
+    color: LEVEL_LINE_COLORS[kind],
+    lineWidth: 1.5,
+    lineStyle: dash ? LightweightCharts.LineStyle.Dashed : LightweightCharts.LineStyle.Solid,
+    priceLineVisible: false,
+    lastValueVisible: true,
+    crosshairMarkerVisible: false,
+    title: `${t.direction === "long" ? "L" : "S"} ${kind}`,
+  });
+  const endTime = (lastChartRightTime && String(lastChartRightTime) > String(t.time))
+    ? lastChartRightTime : t.time;
+  series.setData([
+    { time: t.time, value: price },
+    { time: endTime, value: price },
+  ]);
+  return series;
+}
+
 function renderTradeLevelLines() {
   _clearTradeLevelLines();
+  if (!lastChartRightTime) return;
   const trades = currentDrawings?.trades || [];
   for (const t of trades) {
     if (t.kind !== "entry") continue;
     if (t.pairedExitId) continue;  // closed — drop the lines
     if (t.stopPrice == null || t.targetPrice == null) continue;
-    const lineFor = (kind, price, dash) => candleSeries.createPriceLine({
-      price,
-      color: LEVEL_LINE_COLORS[kind],
-      lineWidth: 1,
-      lineStyle: dash ? LightweightCharts.LineStyle.Dashed : LightweightCharts.LineStyle.Solid,
-      axisLabelVisible: true,
-      title: `${t.direction === "long" ? "L" : "S"} ${kind}`,
-    });
     _tradeLevelLines.set(t.id, {
-      entry: lineFor("entry", t.price, true),
-      stop: lineFor("stop", t.stopPrice, false),
-      target: lineFor("target", t.targetPrice, false),
+      entry: _makeTradeLevelSeries(t, "entry", t.price),
+      stop:  _makeTradeLevelSeries(t, "stop",  t.stopPrice),
+      target:_makeTradeLevelSeries(t, "target",t.targetPrice),
     });
   }
 }
@@ -1001,7 +1016,14 @@ function _onChartMouseMoveForDrag(ev) {
     if (_activeDrag.kind === "entry") t.price = newPrice;
     else if (_activeDrag.kind === "stop") t.stopPrice = newPrice;
     else if (_activeDrag.kind === "target") t.targetPrice = newPrice;
-    try { _activeDrag.lineHandle.applyOptions({ price: newPrice }); } catch {}
+    try {
+      const endTime = (lastChartRightTime && String(lastChartRightTime) > String(t.time))
+        ? lastChartRightTime : t.time;
+      _activeDrag.lineHandle.setData([
+        { time: t.time, value: newPrice },
+        { time: endTime, value: newPrice },
+      ]);
+    } catch {}
     ev.preventDefault?.();
   } else {
     // Hover-only cursor feedback.
