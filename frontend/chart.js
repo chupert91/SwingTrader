@@ -290,21 +290,45 @@ function _todayET() {
 }
 
 function _applyLivePriceToCandle(price) {
-  if (!_lastCandle || typeof price !== "number") return;
+  // Temporary debug logging — remove once live candle behavior is verified.
+  console.log("[live] applyLivePriceToCandle", {
+    price,
+    typeofPrice: typeof price,
+    lastCandle: _lastCandle ? { ...(_lastCandle) } : null,
+    today: _todayET(),
+  });
+  if (!_lastCandle || typeof price !== "number") {
+    console.log("[live] skip — no lastCandle or non-numeric price");
+    return;
+  }
   const today = _todayET();
-  if (!today) return;
+  if (!today) {
+    console.log("[live] skip — _todayET failed");
+    return;
+  }
   if (_lastCandle.time === today) {
-    // Update today's bar: close moves, high/low expand to enclose the tick.
     _lastCandle.high = Math.max(_lastCandle.high, price);
     _lastCandle.low = Math.min(_lastCandle.low, price);
     _lastCandle.close = price;
-    try { candleSeries.update(_lastCandle); } catch {}
+    console.log("[live] updating today's bar", { ..._lastCandle });
+    try {
+      candleSeries.update(_lastCandle);
+      console.log("[live] candleSeries.update succeeded");
+    } catch (err) {
+      console.error("[live] candleSeries.update threw", err);
+    }
   } else if (String(_lastCandle.time) < today) {
-    // First tick of a new trading day — append a fresh bar.
     _lastCandle = { time: today, open: price, high: price, low: price, close: price };
-    try { candleSeries.update(_lastCandle); } catch {}
+    console.log("[live] appending new bar for today", { ..._lastCandle });
+    try {
+      candleSeries.update(_lastCandle);
+      console.log("[live] append succeeded");
+    } catch (err) {
+      console.error("[live] candleSeries.update (append) threw", err);
+    }
+  } else {
+    console.log("[live] skip — lastCandle.time > today", { lastTime: _lastCandle.time, today });
   }
-  // If _lastCandle.time > today, do nothing (shouldn't happen in practice).
 }
 
 function _inUSMarketHours() {
