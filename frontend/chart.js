@@ -1125,6 +1125,32 @@ wlForm.addEventListener("submit", (e) => {
   wlInput.value = "";
 });
 
+// Drag-to-reorder via SortableJS (CDN-loaded). On drag end, read the new
+// DOM order, save it (which also syncs to server + re-pushes the rule).
+function initWatchlistSortable() {
+  if (typeof Sortable === "undefined") return;  // CDN failed; ignore
+  if (!watchlistEl || watchlistEl.dataset.sortableInit) return;
+  Sortable.create(watchlistEl, {
+    animation: 150,
+    delay: 180,
+    delayOnTouchOnly: true,
+    touchStartThreshold: 6,
+    filter: "button, input, a",
+    preventOnFilter: false,
+    ghostClass: "wl-drag-ghost",
+    dragClass: "wl-drag-active",
+    chosenClass: "wl-drag-chosen",
+    onEnd: () => {
+      const newOrder = Array.from(watchlistEl.querySelectorAll(".watchlist-item"))
+        .map(li => li.dataset.ticker)
+        .filter(Boolean);
+      if (newOrder.length === 0) return;
+      saveWatchlist(newOrder);   // patched wrapper also calls syncWatchlistToServer + scheduleSignalRuleSync
+    },
+  });
+  watchlistEl.dataset.sortableInit = "1";
+}
+
 // --- Server sync: push watchlist to backend so the scheduler sees it -----
 async function syncWatchlistToServer() {
   try {
@@ -1312,6 +1338,7 @@ refreshDiscoveries();
 (async () => {
   await fetchAndMergeWatchlist();
   renderWatchlist();
+  initWatchlistSortable();
   scheduleSignalRuleSync();
   loadTicker("AAPL");
 })();

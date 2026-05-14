@@ -222,9 +222,25 @@ html, body {
 .watchlist-item {
   padding: 8px 12px;
   border-bottom: 1px solid var(--border);
-  cursor: pointer;
+  cursor: grab;
   position: relative;
   font-variant-numeric: tabular-nums;
+}
+.watchlist-item:active { cursor: grabbing; }
+
+/* SortableJS drag classes */
+.wl-drag-ghost {
+  opacity: 0.35;
+  background: rgba(88, 166, 255, 0.1) !important;
+}
+.wl-drag-chosen {
+  background: rgba(88, 166, 255, 0.08);
+}
+.wl-drag-active {
+  background: var(--panel) !important;
+  border: 1px solid var(--accent) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  cursor: grabbing !important;
 }
 
 .watchlist-item:hover { background: rgba(88, 166, 255, 0.08); }
