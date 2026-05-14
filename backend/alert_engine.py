@@ -53,7 +53,7 @@ class AlertRule:
     stoch_overbought: float = 65.0
     # Liquidity filter: 20-bar avg dollar volume in millions. 0 = off.
     # Applies to both watchlist alerts (detect) and discovery scans.
-    min_avg_volume_m: float = 10.0
+    min_avg_volume_m: float = 50.0
 
     @classmethod
     def optimized_default(cls, notify_email: str = "") -> "AlertRule":
@@ -74,7 +74,7 @@ class AlertRule:
             require_stoch_extreme=True,
             stoch_oversold=35.0,
             stoch_overbought=65.0,
-            min_avg_volume_m=10.0,
+            min_avg_volume_m=50.0,
         )
 
     def to_dict(self) -> dict:
@@ -102,7 +102,7 @@ class AlertRule:
             require_stoch_extreme=bool(data.get("require_stoch_extreme", True)),
             stoch_oversold=float(data.get("stoch_oversold", 35.0)),
             stoch_overbought=float(data.get("stoch_overbought", 65.0)),
-            min_avg_volume_m=float(data.get("min_avg_volume_m", 10.0)),
+            min_avg_volume_m=float(data.get("min_avg_volume_m", 50.0)),
         )
 
 

@@ -277,7 +277,7 @@ const SIGNAL_DEFAULTS = {
   stoch_oversold: 35.0,
   stoch_overbought: 65.0,
   trend_direction: "any",
-  min_avg_volume_m: 10.0,
+  min_avg_volume_m: 50.0,
 };
 
 function loadSignal() {
