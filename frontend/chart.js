@@ -520,8 +520,9 @@ function clearDrawnHandles() {
   drawnPriceLines = [];
   drawnTrendlineSeries = [];
   drawnFibSeries = [];
-  // Trade level lines belong to the candle series too — wipe on ticker change.
+  // Trade level lines + connectors belong to the price chart too — wipe on ticker change.
   if (typeof _clearTradeLevelLines === "function") _clearTradeLevelLines();
+  if (typeof _clearTradeConnectors === "function") _clearTradeConnectors();
 }
 
 function clearDrawingsForCurrentTicker() {
@@ -559,6 +560,7 @@ function renderDrawings(ticker) {
   applyAllMarkers();
   renderTradesList();
   renderTradeLevelLines();
+  renderTradeConnectors();
 }
 
 function _makeFibLines(fib) {
@@ -852,6 +854,7 @@ function addEntry({ direction, size, note, time, price, stopPrice, targetPrice }
   applyAllMarkers();
   renderTradesList();
   renderTradeLevelLines();
+  renderTradeConnectors();
 }
 
 function addExit({ size, note, time, price }) {
@@ -881,6 +884,7 @@ function addExit({ size, note, time, price }) {
   applyAllMarkers();
   renderTradesList();
   renderTradeLevelLines();
+  renderTradeConnectors();
 }
 
 function deleteTrade(id) {
@@ -905,6 +909,7 @@ function deleteTrade(id) {
   applyAllMarkers();
   renderTradesList();
   renderTradeLevelLines();
+  renderTradeConnectors();
 }
 
 // --- Open-trade level lines (entry / stop / target) ---------------------
@@ -966,6 +971,47 @@ function renderTradeLevelLines() {
       stop:  _makeTradeLevelSeries(t, "stop",  t.stopPrice),
       target:_makeTradeLevelSeries(t, "target",t.targetPrice),
     });
+  }
+}
+
+// --- Closed-trade connectors --------------------------------------------
+// For each paired entry+exit, a dotted line segment from the entry bar to
+// the exit bar. Colored by realized P&L (green = win, red = loss).
+const _tradeConnectors = new Map();  // exit.id -> series handle
+
+function _clearTradeConnectors() {
+  for (const s of _tradeConnectors.values()) {
+    try { priceChart.removeSeries(s); } catch {}
+  }
+  _tradeConnectors.clear();
+}
+
+function renderTradeConnectors() {
+  _clearTradeConnectors();
+  const trades = currentDrawings?.trades || [];
+  const entryById = new Map();
+  for (const t of trades) if (t.kind === "entry") entryById.set(t.id, t);
+
+  for (const t of trades) {
+    if (t.kind !== "exit" || !t.pairedEntryId) continue;
+    const entry = entryById.get(t.pairedEntryId);
+    if (!entry) continue;
+    const realized = t.realizedPct ?? 0;
+    const color = realized >= 0 ? "#26a69a" : "#ef5350";
+    const series = priceChart.addLineSeries({
+      color,
+      lineWidth: 1.5,
+      lineStyle: LightweightCharts.LineStyle.Dotted,
+      priceLineVisible: false,
+      lastValueVisible: false,
+      crosshairMarkerVisible: false,
+    });
+    const points = [
+      { time: entry.time, value: entry.price },
+      { time: t.time, value: t.price },
+    ].sort((a, b) => String(a.time).localeCompare(String(b.time)));
+    series.setData(points);
+    _tradeConnectors.set(t.id, series);
   }
 }
 
