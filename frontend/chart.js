@@ -650,10 +650,27 @@ document.querySelectorAll("#drawing-toolbar button").forEach(btn => {
   btn.addEventListener("click", () => {
     if (btn.dataset.tool === "clear") {
       clearDrawingsForCurrentTicker();
+      closeDrawingRailOnMobile();
       return;
     }
     setDrawingMode(btn.dataset.tool);
+    closeDrawingRailOnMobile();
   });
+});
+
+// Mobile-only: floating button toggles the drawing rail in/out from the left.
+const _drawingRailEl = document.getElementById("drawing-rail");
+const _drawingRailToggle = document.getElementById("drawing-rail-toggle");
+function _isMobile() { return window.matchMedia("(max-width: 720px)").matches; }
+function closeDrawingRailOnMobile() {
+  if (!_isMobile() || !_drawingRailEl) return;
+  _drawingRailEl.classList.remove("open");
+  _drawingRailToggle?.classList.remove("active");
+}
+_drawingRailToggle?.addEventListener("click", () => {
+  if (!_drawingRailEl) return;
+  const opened = _drawingRailEl.classList.toggle("open");
+  _drawingRailToggle.classList.toggle("active", opened);
 });
 
 document.addEventListener("keydown", (e) => {

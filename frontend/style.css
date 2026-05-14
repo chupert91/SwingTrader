@@ -131,6 +131,27 @@ html, body {
   min-width: 0;
 }
 
+/* Mobile-only toggle button for the drawing rail (see <=720px media query). */
+.drawing-rail-toggle {
+  display: none;
+  position: fixed;
+  top: 100px;
+  left: 8px;
+  z-index: 7;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+.drawing-rail-toggle:active { transform: scale(0.95); }
+.drawing-rail-toggle.active { color: var(--accent); border-color: var(--accent); }
+
 .sidebar {
   background: var(--panel);
   border-left: 1px solid var(--border);
@@ -1514,8 +1535,22 @@ main {
 
   .layout {
     height: calc(100% - 92px);     /* topbar wraps to ~92px on mobile */
-    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
   }
+
+  /* Drawing rail becomes an off-canvas overlay, toggle reveals it */
+  .drawing-rail {
+    position: fixed;
+    top: 92px;
+    left: 0;
+    bottom: 0;
+    z-index: 9;
+    border-right: 1px solid var(--border);
+    transform: translateX(-100%);
+    transition: transform 0.2s ease-out;
+  }
+  .drawing-rail.open { transform: translateX(0); }
+  .drawing-rail-toggle { display: block; }
 
   .sidebar {
     position: fixed;
