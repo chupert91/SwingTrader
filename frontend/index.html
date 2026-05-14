@@ -183,6 +183,16 @@
         <span>Size (shares / contracts)</span>
         <input type="number" id="trade-size" min="0" step="1" required>
       </label>
+      <div class="trade-modal-prices" id="trade-modal-prices">
+        <label class="trade-modal-field">
+          <span>Stop price</span>
+          <input type="number" id="trade-stop-price" step="0.01" min="0">
+        </label>
+        <label class="trade-modal-field">
+          <span>Target price</span>
+          <input type="number" id="trade-target-price" step="0.01" min="0">
+        </label>
+      </div>
       <label class="trade-modal-field">
         <span>Note (optional)</span>
         <input type="text" id="trade-note" maxlength="120" autocomplete="off">

@@ -520,6 +520,8 @@ function clearDrawnHandles() {
   drawnPriceLines = [];
   drawnTrendlineSeries = [];
   drawnFibSeries = [];
+  // Trade level lines belong to the candle series too — wipe on ticker change.
+  if (typeof _clearTradeLevelLines === "function") _clearTradeLevelLines();
 }
 
 function clearDrawingsForCurrentTicker() {
@@ -556,6 +558,7 @@ function renderDrawings(ticker) {
   }
   applyAllMarkers();
   renderTradesList();
+  renderTradeLevelLines();
 }
 
 function _makeFibLines(fib) {
@@ -809,6 +812,20 @@ const tradeModalMeta = document.getElementById("trade-modal-meta");
 const tradeModalDirField = document.getElementById("trade-modal-direction-field");
 const tradeSizeInput = document.getElementById("trade-size");
 const tradeNoteInput = document.getElementById("trade-note");
+const tradeStopInput = document.getElementById("trade-stop-price");
+const tradeTargetInput = document.getElementById("trade-target-price");
+const tradePricesGroup = document.getElementById("trade-modal-prices");
+
+// Defaults derived from the locked 2% underlying stop / 4% underlying target frame.
+const ENTRY_STOP_FRAC = 0.02;
+const ENTRY_TARGET_FRAC = 0.04;
+
+function _defaultStopTarget(direction, price) {
+  if (direction === "short") {
+    return { stop: price * (1 + ENTRY_STOP_FRAC), target: price * (1 - ENTRY_TARGET_FRAC) };
+  }
+  return { stop: price * (1 - ENTRY_STOP_FRAC), target: price * (1 + ENTRY_TARGET_FRAC) };
+}
 
 let pendingTrade = null;  // { kind: "entry"|"exit", time, price }
 
@@ -820,17 +837,21 @@ function persistTrades() {
   if (activeTicker) setDrawingsFor(activeTicker, currentDrawings);
 }
 
-function addEntry({ direction, size, note, time, price }) {
+function addEntry({ direction, size, note, time, price, stopPrice, targetPrice }) {
+  const defaults = _defaultStopTarget(direction, price);
   currentDrawings.trades.push({
     id: newTradeId(),
     kind: "entry",
     direction, size, note,
     time, price,
+    stopPrice: stopPrice != null ? stopPrice : defaults.stop,
+    targetPrice: targetPrice != null ? targetPrice : defaults.target,
     pairedExitId: null,
   });
   persistTrades();
   applyAllMarkers();
   renderTradesList();
+  renderTradeLevelLines();
 }
 
 function addExit({ size, note, time, price }) {
@@ -859,6 +880,7 @@ function addExit({ size, note, time, price }) {
   persistTrades();
   applyAllMarkers();
   renderTradesList();
+  renderTradeLevelLines();
 }
 
 function deleteTrade(id) {
@@ -882,7 +904,146 @@ function deleteTrade(id) {
   persistTrades();
   applyAllMarkers();
   renderTradesList();
+  renderTradeLevelLines();
 }
+
+// --- Open-trade level lines (entry / stop / target) ---------------------
+// Each open entry gets 3 horizontal priceLines on the candle series. The
+// lines are draggable: mousedown/touchstart inside a small price tolerance
+// around an active line starts a drag; mousemove updates the line live;
+// release saves the new price to the trade record.
+
+// Map of trade.id -> { entry: priceLineHandle, stop: ..., target: ... }
+const _tradeLevelLines = new Map();
+
+const LEVEL_LINE_COLORS = {
+  entry: "rgba(180, 180, 180, 0.9)",
+  stop: "#ef5350",
+  target: "#26a69a",
+};
+
+function _clearTradeLevelLines() {
+  for (const handles of _tradeLevelLines.values()) {
+    for (const h of Object.values(handles)) {
+      try { candleSeries.removePriceLine(h); } catch {}
+    }
+  }
+  _tradeLevelLines.clear();
+}
+
+function renderTradeLevelLines() {
+  _clearTradeLevelLines();
+  const trades = currentDrawings?.trades || [];
+  for (const t of trades) {
+    if (t.kind !== "entry") continue;
+    if (t.pairedExitId) continue;  // closed — drop the lines
+    if (t.stopPrice == null || t.targetPrice == null) continue;
+    const lineFor = (kind, price, dash) => candleSeries.createPriceLine({
+      price,
+      color: LEVEL_LINE_COLORS[kind],
+      lineWidth: 1,
+      lineStyle: dash ? LightweightCharts.LineStyle.Dashed : LightweightCharts.LineStyle.Solid,
+      axisLabelVisible: true,
+      title: `${t.direction === "long" ? "L" : "S"} ${kind}`,
+    });
+    _tradeLevelLines.set(t.id, {
+      entry: lineFor("entry", t.price, true),
+      stop: lineFor("stop", t.stopPrice, false),
+      target: lineFor("target", t.targetPrice, false),
+    });
+  }
+}
+
+// Drag interaction. Hit-test by y-coordinate → price → check each open
+// trade's stored prices within a tolerance proportional to current chart
+// price range. ns-resize cursor when hovering an active line.
+let _activeDrag = null;  // { tradeId, kind, lineHandle }
+const _priceProximityFrac = 0.005;  // 0.5% of last close, rough hit area
+
+function _hitTestLevelLine(y) {
+  const price = candleSeries.coordinateToPrice(y);
+  if (price == null) return null;
+  // Compute tolerance from the visible price range so it works across
+  // very different price scales (penny stocks vs $500 names).
+  const visible = candleSeries.priceScale().getVisibleRange?.();
+  let tolerance;
+  if (visible && visible.maxValue && visible.minValue) {
+    tolerance = (visible.maxValue - visible.minValue) * 0.012;
+  } else {
+    tolerance = Math.abs(price) * _priceProximityFrac;
+  }
+  let best = null;
+  let bestDist = Infinity;
+  const trades = currentDrawings?.trades || [];
+  for (const t of trades) {
+    if (t.kind !== "entry" || t.pairedExitId) continue;
+    if (t.stopPrice == null || t.targetPrice == null) continue;
+    for (const kind of ["entry", "stop", "target"]) {
+      const lp = kind === "entry" ? t.price : (kind === "stop" ? t.stopPrice : t.targetPrice);
+      const d = Math.abs(price - lp);
+      if (d < tolerance && d < bestDist) {
+        bestDist = d;
+        best = { tradeId: t.id, kind };
+      }
+    }
+  }
+  return best;
+}
+
+function _onChartMouseMoveForDrag(ev) {
+  const rect = containers.price.getBoundingClientRect();
+  const y = ev.clientY - rect.top;
+  if (_activeDrag) {
+    const newPrice = candleSeries.coordinateToPrice(y);
+    if (newPrice == null || newPrice <= 0) return;
+    const t = currentDrawings.trades.find(x => x.id === _activeDrag.tradeId);
+    if (!t) return;
+    if (_activeDrag.kind === "entry") t.price = newPrice;
+    else if (_activeDrag.kind === "stop") t.stopPrice = newPrice;
+    else if (_activeDrag.kind === "target") t.targetPrice = newPrice;
+    try { _activeDrag.lineHandle.applyOptions({ price: newPrice }); } catch {}
+    ev.preventDefault?.();
+  } else {
+    // Hover-only cursor feedback.
+    containers.price.style.cursor = _hitTestLevelLine(y) ? "ns-resize" : "";
+  }
+}
+
+function _onChartMouseDownForDrag(ev) {
+  if (ev.button !== undefined && ev.button !== 0) return;
+  const rect = containers.price.getBoundingClientRect();
+  const y = (ev.touches ? ev.touches[0].clientY : ev.clientY) - rect.top;
+  const hit = _hitTestLevelLine(y);
+  if (!hit) return;
+  const handles = _tradeLevelLines.get(hit.tradeId);
+  if (!handles) return;
+  _activeDrag = { tradeId: hit.tradeId, kind: hit.kind, lineHandle: handles[hit.kind] };
+  containers.price.style.cursor = "ns-resize";
+  ev.preventDefault?.();
+}
+
+function _onChartMouseUpForDrag() {
+  if (!_activeDrag) return;
+  _activeDrag = null;
+  persistTrades();
+  renderTradesList();
+}
+
+containers.price.addEventListener("mousedown", _onChartMouseDownForDrag);
+containers.price.addEventListener("mousemove", _onChartMouseMoveForDrag);
+window.addEventListener("mouseup", _onChartMouseUpForDrag);
+
+// Touch: same logic, slightly different event sources.
+containers.price.addEventListener("touchstart", (ev) => {
+  if (!ev.touches || ev.touches.length !== 1) return;
+  _onChartMouseDownForDrag(ev);
+}, { passive: false });
+containers.price.addEventListener("touchmove", (ev) => {
+  if (!_activeDrag || !ev.touches || ev.touches.length !== 1) return;
+  const fake = { clientX: ev.touches[0].clientX, clientY: ev.touches[0].clientY, preventDefault: () => ev.preventDefault() };
+  _onChartMouseMoveForDrag(fake);
+}, { passive: false });
+window.addEventListener("touchend", _onChartMouseUpForDrag);
 
 function manualTradeToMarker(t) {
   if (t.kind === "entry") {
@@ -914,13 +1075,33 @@ function openTradeModal(kind, time, price) {
   tradeModalMeta.textContent =
     `${activeTicker || ""} · ${formatTradeDate(time)} · $${price.toFixed(2)}`;
   tradeModalDirField.style.display = kind === "entry" ? "" : "none";
+  if (tradePricesGroup) tradePricesGroup.style.display = kind === "entry" ? "" : "none";
   const longRadio = tradeModalForm.querySelector('input[name="trade-direction"][value="long"]');
   if (longRadio) longRadio.checked = true;
   tradeSizeInput.value = "";
   tradeNoteInput.value = "";
+  if (kind === "entry") {
+    // Prefill defaults assuming "long" since that's the initial radio state.
+    const d = _defaultStopTarget("long", price);
+    if (tradeStopInput) tradeStopInput.value = d.stop.toFixed(2);
+    if (tradeTargetInput) tradeTargetInput.value = d.target.toFixed(2);
+  }
   tradeModalEl.hidden = false;
   setTimeout(() => tradeSizeInput.focus(), 0);
 }
+
+// When user flips Long ↔ Short in the modal, re-prefill stop/target so the
+// defaults reflect the chosen side. Only fires if the user hasn't manually
+// edited those fields yet.
+tradeModalForm?.querySelectorAll('input[name="trade-direction"]').forEach(radio => {
+  radio.addEventListener("change", () => {
+    if (!pendingTrade || pendingTrade.kind !== "entry") return;
+    const dir = tradeModalForm.querySelector('input[name="trade-direction"]:checked')?.value || "long";
+    const d = _defaultStopTarget(dir, pendingTrade.price);
+    if (tradeStopInput) tradeStopInput.value = d.stop.toFixed(2);
+    if (tradeTargetInput) tradeTargetInput.value = d.target.toFixed(2);
+  });
+});
 
 function closeTradeModal() {
   pendingTrade = null;
@@ -1004,7 +1185,13 @@ tradeModalForm?.addEventListener("submit", (e) => {
   const note = tradeNoteInput.value.trim();
   const direction = tradeModalForm.querySelector('input[name="trade-direction"]:checked')?.value || "long";
   const { kind, time, price } = pendingTrade;
-  if (kind === "entry") addEntry({ direction, size, note, time, price });
+  if (kind === "entry") {
+    const stopRaw = tradeStopInput?.value;
+    const targetRaw = tradeTargetInput?.value;
+    const stopPrice = stopRaw ? Number(stopRaw) : null;
+    const targetPrice = targetRaw ? Number(targetRaw) : null;
+    addEntry({ direction, size, note, time, price, stopPrice, targetPrice });
+  }
   else addExit({ size, note, time, price });
   closeTradeModal();
 });

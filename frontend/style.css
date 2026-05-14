@@ -1195,6 +1195,12 @@ main {
 
 .trade-modal-field input:focus { border-color: var(--accent); }
 
+.trade-modal-prices {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
 .trade-modal-actions {
   display: flex;
   gap: 8px;
