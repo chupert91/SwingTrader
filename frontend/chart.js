@@ -291,43 +291,43 @@ function _todayET() {
 
 function _applyLivePriceToCandle(price) {
   // Temporary debug logging — remove once live candle behavior is verified.
-  console.log("[live] applyLivePriceToCandle", {
+  console.warn("[live] applyLivePriceToCandle", {
     price,
     typeofPrice: typeof price,
     lastCandle: _lastCandle ? { ...(_lastCandle) } : null,
     today: _todayET(),
   });
   if (!_lastCandle || typeof price !== "number") {
-    console.log("[live] skip — no lastCandle or non-numeric price");
+    console.warn("[live] skip — no lastCandle or non-numeric price");
     return;
   }
   const today = _todayET();
   if (!today) {
-    console.log("[live] skip — _todayET failed");
+    console.warn("[live] skip — _todayET failed");
     return;
   }
   if (_lastCandle.time === today) {
     _lastCandle.high = Math.max(_lastCandle.high, price);
     _lastCandle.low = Math.min(_lastCandle.low, price);
     _lastCandle.close = price;
-    console.log("[live] updating today's bar", { ..._lastCandle });
+    console.warn("[live] updating today's bar", { ..._lastCandle });
     try {
       candleSeries.update(_lastCandle);
-      console.log("[live] candleSeries.update succeeded");
+      console.warn("[live] candleSeries.update succeeded");
     } catch (err) {
       console.error("[live] candleSeries.update threw", err);
     }
   } else if (String(_lastCandle.time) < today) {
     _lastCandle = { time: today, open: price, high: price, low: price, close: price };
-    console.log("[live] appending new bar for today", { ..._lastCandle });
+    console.warn("[live] appending new bar for today", { ..._lastCandle });
     try {
       candleSeries.update(_lastCandle);
-      console.log("[live] append succeeded");
+      console.warn("[live] append succeeded");
     } catch (err) {
       console.error("[live] candleSeries.update (append) threw", err);
     }
   } else {
-    console.log("[live] skip — lastCandle.time > today", { lastTime: _lastCandle.time, today });
+    console.warn("[live] skip — lastCandle.time > today", { lastTime: _lastCandle.time, today });
   }
 }
 
