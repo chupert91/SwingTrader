@@ -231,6 +231,11 @@ function renderChart(data) {
   }
   lastChartRightTime = right;
 
+  // Snapshot the last bar so the live-quote poller can keep updating it
+  // without re-fetching the full chart.
+  const candles = data.candles || [];
+  _lastCandle = candles.length ? { ...candles[candles.length - 1] } : null;
+
   renderDrawings(data.ticker);
   candleSeries.setData(data.candles);
   volumeTotalSeries.setData(data.volume_total);
@@ -270,6 +275,37 @@ function renderSummary(ticker, s) {
 const QUOTE_POLL_MS = 30_000;
 let _quoteTimer = null;
 let _quoteLastTick = 0;  // ms timestamp of last successful poll
+let _lastCandle = null;  // { time, open, high, low, close } — kept in sync with the chart's last bar
+
+function _todayET() {
+  // YYYY-MM-DD in the New York timezone — matches yfinance's daily bar time format.
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/New_York",
+      year: "numeric", month: "2-digit", day: "2-digit",
+    }).formatToParts(new Date());
+    const m = Object.fromEntries(parts.map(p => [p.type, p.value]));
+    return `${m.year}-${m.month}-${m.day}`;
+  } catch { return null; }
+}
+
+function _applyLivePriceToCandle(price) {
+  if (!_lastCandle || typeof price !== "number") return;
+  const today = _todayET();
+  if (!today) return;
+  if (_lastCandle.time === today) {
+    // Update today's bar: close moves, high/low expand to enclose the tick.
+    _lastCandle.high = Math.max(_lastCandle.high, price);
+    _lastCandle.low = Math.min(_lastCandle.low, price);
+    _lastCandle.close = price;
+    try { candleSeries.update(_lastCandle); } catch {}
+  } else if (String(_lastCandle.time) < today) {
+    // First tick of a new trading day — append a fresh bar.
+    _lastCandle = { time: today, open: price, high: price, low: price, close: price };
+    try { candleSeries.update(_lastCandle); } catch {}
+  }
+  // If _lastCandle.time > today, do nothing (shouldn't happen in practice).
+}
 
 function _inUSMarketHours() {
   // Use Intl.DateTimeFormat to read the current hour/minute/weekday in ET,
@@ -324,6 +360,7 @@ async function _pollOnce() {
     if (priceEl && typeof data.price === "number") {
       priceEl.textContent = `$${data.price.toFixed(2)}`;
     }
+    _applyLivePriceToCandle(data.price);
     _setLiveBadge("live");
   } catch {
     _setLiveBadge("delayed");
