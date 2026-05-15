@@ -79,9 +79,10 @@ def _find_divergences(
     top_limit: float,
     bot_limit: float,
     use_limits: bool,
-) -> dict[str, list[int]]:
+) -> dict[str, list[tuple[int, int]]]:
     """Pine's f_findDivs ported. Returns {bull_reg, bear_reg, bull_hid, bear_hid}
-    each as a list of confirmation bar indices (the second pivot in the pair).
+    each as a list of (prev_pivot_idx, curr_pivot_idx) pairs so callers can
+    draw connector lines between the two fractals.
     """
     tops, bots = _fractals(src)
     if use_limits:
@@ -90,31 +91,31 @@ def _find_divergences(
 
     bull_reg, bear_reg, bull_hid, bear_hid = [], [], [], []
 
+    last_top_idx = None
     last_top_src = None
     last_top_high = None
     for i in range(len(src)):
         if tops[i]:
-            if last_top_src is not None:
-                # bearSignal = high > last_high AND src < last_src
+            if last_top_idx is not None:
                 if high[i] > last_top_high and src[i] < last_top_src:
-                    bear_reg.append(i)
-                # bearDivHidden = high < last_high AND src > last_src
+                    bear_reg.append((last_top_idx, i))
                 elif high[i] < last_top_high and src[i] > last_top_src:
-                    bear_hid.append(i)
+                    bear_hid.append((last_top_idx, i))
+            last_top_idx = i
             last_top_src = src[i]
             last_top_high = high[i]
 
+    last_bot_idx = None
     last_bot_src = None
     last_bot_low = None
     for i in range(len(src)):
         if bots[i]:
-            if last_bot_src is not None:
-                # bullSignal = low < last_low AND src > last_src
+            if last_bot_idx is not None:
                 if low[i] < last_bot_low and src[i] > last_bot_src:
-                    bull_reg.append(i)
-                # bullDivHidden = low > last_low AND src < last_src
+                    bull_reg.append((last_bot_idx, i))
                 elif low[i] > last_bot_low and src[i] < last_bot_src:
-                    bull_hid.append(i)
+                    bull_hid.append((last_bot_idx, i))
+            last_bot_idx = i
             last_bot_src = src[i]
             last_bot_low = low[i]
 
@@ -152,15 +153,111 @@ def _compute(df: pd.DataFrame, params: dict) -> IndicatorResult:
     wt1, wt2 = _wavetrend(df, chlen, avg, malen)
     vwap = wt1 - wt2
     times = df["timestamp"].dt.strftime("%Y-%m-%d").tolist()
+    wt1v = wt1.to_numpy()
+    wt2v = wt2.to_numpy()
+    high_v = df["high"].astype(float).to_numpy()
+    low_v = df["low"].astype(float).to_numpy()
 
     items: list[PlotItem] = []
 
-    # WT2 first (drawn under WT1 visually). Both areas filled toward 0.
+    # Top-of-scale anchor: faint line at +100. Forces auto-scale to reach the
+    # OB region so the pane vertical doesn't compress to data-only.
+    items.append(PlotItem(
+        kind="line", name="OB top", pane="own",
+        data=[{"time": t, "value": 100.0} for t in times],
+        style={"color": "rgba(255,255,255,0.10)", "lineWidth": 1},
+    ))
+
+    # WT2 first — drawn at the back. Markers will attach to this series since
+    # it'll be the most-recent series when we emit the marker PlotItem next.
     items.append(PlotItem(
         kind="area", name="WT2", pane="own",
         data=line_points(times, wt2),
         style={"color": color_wt2, "fillOpacity": 0.55, "lineWidth": 1},
     ))
+
+    # --- Compute signals (markers + divergences) right after WT2 so markers
+    # and connector lines attach to it.
+    cross_up: list[int] = []
+    cross_down: list[int] = []
+    for i in range(1, len(wt1v)):
+        if np.isnan(wt1v[i]) or np.isnan(wt2v[i]) or np.isnan(wt1v[i - 1]) or np.isnan(wt2v[i - 1]):
+            continue
+        prev_diff = wt1v[i - 1] - wt2v[i - 1]
+        cur_diff = wt1v[i] - wt2v[i]
+        if prev_diff <= 0 and cur_diff > 0:
+            cross_up.append(i)
+        elif prev_diff >= 0 and cur_diff < 0:
+            cross_down.append(i)
+
+    markers: list[dict] = []
+    if show_buy_sell:
+        for i in cross_up:
+            if wt2v[i] <= os_level:
+                markers.append({"time": times[i], "position": "inBar",
+                                "color": "#00e676", "shape": "circle"})
+        for i in cross_down:
+            if wt2v[i] >= ob_level:
+                markers.append({"time": times[i], "position": "inBar",
+                                "color": "#ff5252", "shape": "circle"})
+
+    divs = _find_divergences(wt2v, high_v, low_v, div_ob_level, div_os_level, True) \
+        if (show_div or show_div_hidden) else {"bull_reg": [], "bear_reg": [],
+                                                "bull_hid": [], "bear_hid": []}
+
+    # Gold-buy markers (combined wt bullish div + deep oversold + RSI<30).
+    if show_gold:
+        rsi_v = _rsi(df["close"], rsi_len).to_numpy()
+        bots_mask = _fractals(wt2v)[1]
+        last_bot_val = None
+        last_bot_rsi = None
+        bull_reg_curr_indices = {curr for (_prev, curr) in divs["bull_reg"]}
+        for i in range(len(wt2v)):
+            if bots_mask[i]:
+                last_bot_val = wt2v[i]
+                last_bot_rsi = rsi_v[i] if i < len(rsi_v) else np.nan
+            if i in bull_reg_curr_indices and last_bot_val is not None:
+                if (last_bot_val <= os_level3 and wt2v[i] > os_level3
+                        and (last_bot_val - wt2v[i]) <= -5
+                        and last_bot_rsi is not None and last_bot_rsi < 30):
+                    markers.append({"time": times[i], "position": "inBar",
+                                    "color": "#e2a400", "shape": "circle", "text": "GOLD"})
+
+    if markers:
+        markers.sort(key=lambda m: m["time"])
+        # Attached to WT2 (the most-recent series at this point) so position
+        # aboveBar/belowBar/inBar tracks the WT2 wave value, not zero.
+        items.append(PlotItem(kind="marker", name="Signals", pane="own", data=markers))
+
+    # Divergence connector lines — one 2-point line per pair, drawn on WT2
+    # values. Pine equivalent: plot(wtFractalTop ? wt2[2] : na, ...) connecting
+    # consecutive fractals with the divergence color.
+    div_styles = {
+        "bull_reg": {"color": "#00e676", "lineWidth": 2},
+        "bear_reg": {"color": "#e60000", "lineWidth": 2},
+        "bull_hid": {"color": "#7fdcdc", "lineWidth": 2, "lineStyle": "dashed"},
+        "bear_hid": {"color": "#f0a890", "lineWidth": 2, "lineStyle": "dashed"},
+    }
+    div_filter = {
+        "bull_reg": show_div, "bear_reg": show_div,
+        "bull_hid": show_div_hidden, "bear_hid": show_div_hidden,
+    }
+    for kind, pairs in divs.items():
+        if not div_filter[kind]:
+            continue
+        for prev_idx, curr_idx in pairs:
+            if np.isnan(wt2v[prev_idx]) or np.isnan(wt2v[curr_idx]):
+                continue
+            items.append(PlotItem(
+                kind="line", name=f"div {kind}", pane="own",
+                data=[
+                    {"time": times[prev_idx], "value": float(wt2v[prev_idx])},
+                    {"time": times[curr_idx], "value": float(wt2v[curr_idx])},
+                ],
+                style=div_styles[kind],
+            ))
+
+    # WT1 drawn on top of WT2 + divergence lines.
     items.append(PlotItem(
         kind="area", name="WT1", pane="own",
         data=line_points(times, wt1),
@@ -172,25 +269,43 @@ def _compute(df: pd.DataFrame, params: dict) -> IndicatorResult:
         items.append(PlotItem(
             kind="area", name="Fast WT (VWAP)", pane="own",
             data=line_points(times, vwap),
-            style={"color": color_vwap, "fillOpacity": 0.18, "lineWidth": 1},
+            style={"color": color_vwap, "fillOpacity": 0.20, "lineWidth": 1},
         ))
 
-    # MFI area — colored histogram split by sign (positive green, negative red).
+    # MFI as a translucent area split by sign (green above zero, red below) —
+    # matches Pine's plot.style_area for rsiMFI rather than the bar-chart
+    # look the previous histogram produced.
     if show_mfi:
         mfi = _rsi_mfi(df, mfi_period, mfi_mult, mfi_pos_y)
-        mfi_data = [
-            {"time": t, "value": float(v),
-             "color": (color_mfi_pos if v >= 0 else color_mfi_neg)}
-            for t, v in zip(times, mfi)
-            if pd.notna(v)
-        ]
         items.append(PlotItem(
-            kind="histogram", name="MFI Area", pane="own",
-            data=mfi_data,
-            style={"base": 0},
+            kind="area", name="MFI Area", pane="own",
+            data=line_points(times, mfi),
+            style={
+                "topColor": color_mfi_pos,
+                "bottomColor": color_mfi_neg,
+                "fillOpacity": 0.45,
+                "lineWidth": 1,
+                "baseValue": 0,
+            },
         ))
 
-    # OB/OS guide lines.
+        # MFI Bar — the thin colored strip at the very bottom of the pane in
+        # TV (Pine: fill between hline(-95) and hline(-99) colored by MFI
+        # sign). Histogram with base=-99, value=-95 gives a 4-unit tall bar
+        # at each time, colored by current MFI sign.
+        bar_data = []
+        for t, v in zip(times, mfi):
+            if pd.isna(v):
+                continue
+            color = color_mfi_pos if v >= 0 else color_mfi_neg
+            bar_data.append({"time": t, "value": -95.0, "color": color})
+        items.append(PlotItem(
+            kind="histogram", name="MFI Bar", pane="own", data=bar_data,
+            style={"base": -99.0, "color": color_mfi_neg},
+        ))
+
+    # OB/OS guide price lines on the WT2 right axis. The actual scale anchor
+    # is the OB-top line series above; these are display labels.
     items.append(PlotItem(
         kind="price_line", name="WT zones", pane="own",
         data=[
@@ -206,81 +321,6 @@ def _compute(df: pd.DataFrame, params: dict) -> IndicatorResult:
              "lineStyle": "dotted", "lineWidth": 1},
         ],
     ))
-
-    # --- Signals --------------------------------------------------------
-    wt1v = wt1.to_numpy()
-    wt2v = wt2.to_numpy()
-    high_v = df["high"].astype(float).to_numpy()
-    low_v = df["low"].astype(float).to_numpy()
-
-    # wtCross = cross(wt1, wt2); wtCrossUp = wt2 - wt1 <= 0
-    cross_up: list[int] = []
-    cross_down: list[int] = []
-    for i in range(1, len(wt1v)):
-        if np.isnan(wt1v[i]) or np.isnan(wt2v[i]) or np.isnan(wt1v[i - 1]) or np.isnan(wt2v[i - 1]):
-            continue
-        prev_diff = wt1v[i - 1] - wt2v[i - 1]
-        cur_diff = wt1v[i] - wt2v[i]
-        if prev_diff <= 0 and cur_diff > 0:
-            cross_up.append(i)
-        elif prev_diff >= 0 and cur_diff < 0:
-            cross_down.append(i)
-
-    markers: list[dict] = []
-
-    if show_buy_sell:
-        # Buy circle: cross-up while wt2 oversold (wt2 <= os_level).
-        for i in cross_up:
-            if wt2v[i] <= os_level:
-                markers.append({"time": times[i], "position": "inBar",
-                                "color": "#00e676", "shape": "circle"})
-        # Sell circle: cross-down while wt2 overbought.
-        for i in cross_down:
-            if wt2v[i] >= ob_level:
-                markers.append({"time": times[i], "position": "inBar",
-                                "color": "#ff5252", "shape": "circle"})
-
-    # Divergences on wt2.
-    if show_div or show_div_hidden:
-        divs = _find_divergences(wt2v, high_v, low_v, div_ob_level, div_os_level, True)
-        if show_div:
-            for i in divs["bull_reg"]:
-                markers.append({"time": times[i], "position": "belowBar",
-                                "color": "#00e676", "shape": "arrowUp", "text": "div"})
-            for i in divs["bear_reg"]:
-                markers.append({"time": times[i], "position": "aboveBar",
-                                "color": "#e60000", "shape": "arrowDown", "text": "div"})
-        if show_div_hidden:
-            for i in divs["bull_hid"]:
-                markers.append({"time": times[i], "position": "belowBar",
-                                "color": "#7fdcdc", "shape": "arrowUp", "text": "hid"})
-            for i in divs["bear_hid"]:
-                markers.append({"time": times[i], "position": "aboveBar",
-                                "color": "#f0a890", "shape": "arrowDown", "text": "hid"})
-
-    # Gold buy circle — Pine: wt bullish div + wtLow_prev <= osLevel3 + wt2 > osLevel3
-    # + wtLow_prev - wt2 <= -5 + rsi at last bot fractal < 30.
-    if show_gold:
-        rsi_v = _rsi(df["close"], rsi_len).to_numpy()
-        divs_all = _find_divergences(wt2v, high_v, low_v, div_ob_level, div_os_level, True)
-        # Track most-recent bot fractal value and rsi at that fractal.
-        bots = _fractals(wt2v)[1]
-        last_bot_val = None
-        last_bot_rsi = None
-        for i in range(len(wt2v)):
-            if bots[i]:
-                last_bot_val = wt2v[i]
-                last_bot_rsi = rsi_v[i] if i < len(rsi_v) else np.nan
-            if i in divs_all["bull_reg"] and last_bot_val is not None:
-                if (last_bot_val <= os_level3 and wt2v[i] > os_level3
-                        and (last_bot_val - wt2v[i]) <= -5
-                        and last_bot_rsi is not None and last_bot_rsi < 30):
-                    markers.append({"time": times[i], "position": "inBar",
-                                    "color": "#e2a400", "shape": "circle", "text": "GOLD"})
-
-    if markers:
-        markers.sort(key=lambda m: m["time"])
-        items.append(PlotItem(kind="marker", name="Signals", pane="own", data=markers))
 
     return IndicatorResult(
         pane_title=f"VuManChu Cipher B ({chlen}, {avg})",

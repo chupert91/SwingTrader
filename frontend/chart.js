@@ -1842,19 +1842,20 @@ function _renderPlotItem(item, paneEntry) {
     case "area": {
       // Filled area between line and a baseline value (default 0). Used by
       // oscillators like VuManChu WT that want a wave-shaped fill above
-      // and below zero in a single color.
+      // and below zero. Supports asymmetric colors (topColor / bottomColor)
+      // so an indicator like MFI can fill green-above-zero / red-below.
       const baseValue = style.baseValue ?? 0;
-      const lineColor = style.color || "#cccccc";
-      const fill1 = style.topFillColor1 || _withAlpha(lineColor, style.fillOpacity ?? 0.32);
-      const fill2 = style.topFillColor2 || _withAlpha(lineColor, (style.fillOpacity ?? 0.32) * 0.15);
+      const topColor = style.topColor || style.color || "#cccccc";
+      const bottomColor = style.bottomColor || style.color || "#cccccc";
+      const opacity = style.fillOpacity ?? 0.32;
       const s = targetChart.addBaselineSeries({
         baseValue: { type: "price", price: baseValue },
-        topLineColor: lineColor,
-        topFillColor1: fill1,
-        topFillColor2: fill2,
-        bottomLineColor: lineColor,
-        bottomFillColor1: fill2,
-        bottomFillColor2: fill1,
+        topLineColor: topColor,
+        topFillColor1: _withAlpha(topColor, opacity),
+        topFillColor2: _withAlpha(topColor, opacity * 0.1),
+        bottomLineColor: bottomColor,
+        bottomFillColor1: _withAlpha(bottomColor, opacity * 0.1),
+        bottomFillColor2: _withAlpha(bottomColor, opacity),
         lineWidth: style.lineWidth ?? 1,
         priceLineVisible: false,
         lastValueVisible: !!style.lastValueVisible,
