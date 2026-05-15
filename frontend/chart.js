@@ -1919,6 +1919,39 @@ function _renderPlotItem(item, paneEntry) {
   }
 }
 
+// After dynamic panes are populated, equalize all right-price-scale widths so
+// the time axes line up horizontally. Without this, a pane whose axis labels
+// happen to be wider (e.g. "-100.00" vs "100") shifts its time axis left by
+// the difference, making bars no longer align with the price chart above.
+function _alignPriceScaleWidths() {
+  // Wait one frame so each chart has actually laid out its axis text before
+  // we read .width(). priceChart.priceScale("right").width() is computed
+  // from the longest label currently shown.
+  requestAnimationFrame(() => {
+    const charts = [priceChart];
+    for (const p of _dynamicPanes.values()) {
+      if (p.container) charts.push(p.chart);
+    }
+    if (charts.length < 2) {
+      priceChart.priceScale("right").applyOptions({ minimumWidth: 0 });
+      return;
+    }
+    let maxWidth = 0;
+    for (const c of charts) {
+      try {
+        const w = c.priceScale("right").width();
+        if (w > maxWidth) maxWidth = w;
+      } catch {}
+    }
+    if (maxWidth <= 0) return;
+    for (const c of charts) {
+      try {
+        c.priceScale("right").applyOptions({ minimumWidth: maxWidth });
+      } catch {}
+    }
+  });
+}
+
 function renderCustomIndicators(indicators) {
   _tearDownDynamicPanes();
   // Reserve grid rows BEFORE creating chart instances so their containers
@@ -1938,6 +1971,7 @@ function renderCustomIndicators(indicators) {
     }
     _dynamicPanes.set(ind.indicator_id, paneEntry);
   }
+  _alignPriceScaleWidths();
 }
 
 // --- Indicators picker ---------------------------------------------------
