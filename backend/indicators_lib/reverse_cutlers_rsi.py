@@ -71,7 +71,7 @@ def _compute(df: pd.DataFrame, params: dict) -> IndicatorResult:
     sig_type = params.get("sig_type", "SMA")
     crit_bull = float(params.get("crit_bull", 80))
     crit_bear = float(params.get("crit_bear", 20))
-    show_proj = bool(params.get("show_projections", True))
+    show_proj = bool(params.get("show_projections", False))
     color_rsi = params.get("color_rsi", "#00ffdd")
     color_signal = params.get("color_signal", "#ffffff")
     color_proj_bull = params.get("color_proj_bull", "#26a69a")
@@ -171,7 +171,7 @@ register(
             IndicatorParam(id="sig_type", label="Signal MA type", type="select", default="SMA", options=["SMA", "EMA"]),
             IndicatorParam(id="crit_bull", label="Critical bull RSI", type="float", default=80, min=50, max=99, step=1),
             IndicatorParam(id="crit_bear", label="Critical bear RSI", type="float", default=20, min=1, max=50, step=1),
-            IndicatorParam(id="show_projections", label="Show reverse projection on price pane", type="bool", default=True),
+            IndicatorParam(id="show_projections", label="Show reverse projection on price pane", type="bool", default=False),
             IndicatorParam(id="color_rsi", label="RSI color", type="color", default="#00ffdd"),
             IndicatorParam(id="color_signal", label="Signal color", type="color", default="#ffffff"),
             IndicatorParam(id="color_proj_bull", label="Bull projection color", type="color", default="#26a69a"),

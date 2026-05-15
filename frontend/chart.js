@@ -1658,6 +1658,19 @@ function _lwLineStyle(s) {
   }
 }
 
+// Returns the input color as rgba() with the given alpha. Accepts hex
+// (#rgb / #rrggbb) or pass-through rgba/rgb strings.
+function _withAlpha(color, alpha) {
+  if (!color) return `rgba(128,128,128,${alpha})`;
+  if (color.startsWith("rgba") || color.startsWith("rgb")) return color;
+  let hex = color.replace("#", "");
+  if (hex.length === 3) hex = hex.split("").map(c => c + c).join("");
+  const r = parseInt(hex.slice(0, 2), 16);
+  const g = parseInt(hex.slice(2, 4), 16);
+  const b = parseInt(hex.slice(4, 6), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
 function _updateMainGridRows(ownPaneCount) {
   // Only the price pane is hardcoded (minmax(0,1fr) so it absorbs the
   // remaining space). Each dynamic indicator pane with its own chart
@@ -1758,6 +1771,32 @@ function _renderPlotItem(item, paneEntry) {
         borderDownColor: style.borderDownColor || style.downColor || "#ef5350",
         wickUpColor: style.wickUpColor || style.upColor || "#26a69a",
         wickDownColor: style.wickDownColor || style.downColor || "#ef5350",
+      });
+      s.setData(item.data || []);
+      (onPrice ? paneEntry.priceSeries : paneEntry.series).push(s);
+      paneEntry._lastSeries = s;
+      break;
+    }
+    case "area": {
+      // Filled area between line and a baseline value (default 0). Used by
+      // oscillators like VuManChu WT that want a wave-shaped fill above
+      // and below zero in a single color.
+      const baseValue = style.baseValue ?? 0;
+      const lineColor = style.color || "#cccccc";
+      const fill1 = style.topFillColor1 || _withAlpha(lineColor, style.fillOpacity ?? 0.32);
+      const fill2 = style.topFillColor2 || _withAlpha(lineColor, (style.fillOpacity ?? 0.32) * 0.15);
+      const s = targetChart.addBaselineSeries({
+        baseValue: { type: "price", price: baseValue },
+        topLineColor: lineColor,
+        topFillColor1: fill1,
+        topFillColor2: fill2,
+        bottomLineColor: lineColor,
+        bottomFillColor1: fill2,
+        bottomFillColor2: fill1,
+        lineWidth: style.lineWidth ?? 1,
+        priceLineVisible: false,
+        lastValueVisible: !!style.lastValueVisible,
+        crosshairMarkerVisible: !onPrice,
       });
       s.setData(item.data || []);
       (onPrice ? paneEntry.priceSeries : paneEntry.series).push(s);
