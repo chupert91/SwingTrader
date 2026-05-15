@@ -307,10 +307,9 @@ function _applyLivePriceToCandle(price) {
   }
 }
 
-function _inUSMarketHours() {
-  // Use Intl.DateTimeFormat to read the current hour/minute/weekday in ET,
-  // which auto-handles DST. Holidays (e.g. Thanksgiving) not filtered —
-  // we'd just waste a poll, no harm done.
+function _marketSession() {
+  // Returns "pre" | "regular" | "after" | "closed" in ET (auto-handles DST).
+  // Holidays not filtered — we'd just waste a poll, no harm done.
   try {
     const parts = new Intl.DateTimeFormat("en-US", {
       timeZone: "America/New_York",
@@ -320,10 +319,39 @@ function _inUSMarketHours() {
       hour12: false,
     }).formatToParts(new Date());
     const m = Object.fromEntries(parts.map(p => [p.type, p.value]));
-    if (m.weekday === "Sat" || m.weekday === "Sun") return false;
+    if (m.weekday === "Sat" || m.weekday === "Sun") return "closed";
     const minutes = parseInt(m.hour, 10) * 60 + parseInt(m.minute, 10);
-    return minutes >= 9 * 60 + 30 && minutes < 16 * 60;
-  } catch { return false; }
+    if (minutes >= 4 * 60 && minutes < 9 * 60 + 30) return "pre";
+    if (minutes >= 9 * 60 + 30 && minutes < 16 * 60) return "regular";
+    if (minutes >= 16 * 60 && minutes < 20 * 60) return "after";
+    return "closed";
+  } catch { return "closed"; }
+}
+
+// Extended-hours marker: a dashed amber price line on the candle series
+// that tracks the current ext-hours trade. Cleared once regular hours
+// start (so the daily candle becomes authoritative again).
+const EXT_HOURS_COLOR = "#e69138";
+let _extPriceLine = null;
+
+function _clearExtPriceLine() {
+  if (_extPriceLine) {
+    try { candleSeries.removePriceLine(_extPriceLine); } catch {}
+    _extPriceLine = null;
+  }
+}
+
+function _setExtPriceLine(price, session) {
+  if (typeof price !== "number") return;
+  _clearExtPriceLine();
+  _extPriceLine = candleSeries.createPriceLine({
+    price,
+    color: EXT_HOURS_COLOR,
+    lineWidth: 1,
+    lineStyle: LightweightCharts.LineStyle.Dashed,
+    axisLabelVisible: true,
+    title: session === "pre" ? "Pre-mkt" : "After-hrs",
+  });
 }
 
 function _setLiveBadge(state) {
@@ -343,7 +371,9 @@ function _setLiveBadge(state) {
 async function _pollOnce() {
   if (!activeTicker) return;
   if (document.visibilityState !== "visible") return;
-  if (!_inUSMarketHours()) {
+  const session = _marketSession();
+  if (session === "closed") {
+    _clearExtPriceLine();
     _setLiveBadge("delayed");
     return;
   }
@@ -360,7 +390,12 @@ async function _pollOnce() {
     if (priceEl && typeof data.price === "number") {
       priceEl.textContent = `$${data.price.toFixed(2)}`;
     }
-    _applyLivePriceToCandle(data.price);
+    if (session === "regular") {
+      _clearExtPriceLine();
+      _applyLivePriceToCandle(data.price);
+    } else {
+      _setExtPriceLine(data.price, session);
+    }
     _setLiveBadge("live");
   } catch {
     _setLiveBadge("delayed");
@@ -378,6 +413,7 @@ function startQuotePolling() {
 function stopQuotePolling() {
   if (_quoteTimer) clearInterval(_quoteTimer);
   _quoteTimer = null;
+  _clearExtPriceLine();
   _setLiveBadge("off");
 }
 
