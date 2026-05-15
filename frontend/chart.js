@@ -1091,10 +1091,11 @@ function deleteTrade(id) {
 // edge of the chart, so it doesn't bleed back into pre-entry history.
 const _tradeLevelLines = new Map();
 
+const TRADE_COLOR = "#e69138";
 const LEVEL_LINE_COLORS = {
-  entry: "rgba(180, 180, 180, 0.9)",
-  stop: "#ef5350",
-  target: "#26a69a",
+  entry: TRADE_COLOR,
+  stop: TRADE_COLOR,
+  target: TRADE_COLOR,
 };
 
 function _clearTradeLevelLines() {
@@ -1143,8 +1144,8 @@ function renderTradeLevelLines() {
 }
 
 // --- Closed-trade connectors --------------------------------------------
-// For each paired entry+exit, a dotted line segment from the entry bar to
-// the exit bar. Colored by realized P&L (green = win, red = loss).
+// For each paired entry+exit, a dotted amber segment from entry bar to
+// exit bar. Realized P&L is shown via the exit marker's text label.
 const _tradeConnectors = new Map();  // exit.id -> series handle
 
 function _clearTradeConnectors() {
@@ -1164,10 +1165,8 @@ function renderTradeConnectors() {
     if (t.kind !== "exit" || !t.pairedEntryId) continue;
     const entry = entryById.get(t.pairedEntryId);
     if (!entry) continue;
-    const realized = t.realizedPct ?? 0;
-    const color = realized >= 0 ? "#26a69a" : "#ef5350";
     const series = priceChart.addLineSeries({
-      color,
+      color: TRADE_COLOR,
       lineWidth: 1.5,
       lineStyle: LightweightCharts.LineStyle.Dotted,
       priceLineVisible: false,
@@ -1287,22 +1286,19 @@ function manualTradeToMarker(t) {
     return {
       time: t.time,
       position: isLong ? "belowBar" : "aboveBar",
-      color: isLong ? "#26a69a" : "#ef5350",
+      color: TRADE_COLOR,
       shape: "circle",
       text: `${isLong ? "BUY" : "SHORT"} ${t.size}`,
     };
   }
   const dir = t.pairedDirection;
   const v = t.realizedPct;
-  let color = "#7d8590";
-  let text = `EXIT ${t.size}`;
-  if (v != null) {
-    color = v >= 0 ? "#26a69a" : "#ef5350";
-    text = `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
-  }
+  const text = v == null
+    ? `EXIT ${t.size}`
+    : `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
   // Place exit opposite to its paired entry (or above by default).
   const position = dir === "short" ? "belowBar" : "aboveBar";
-  return { time: t.time, position, color, shape: "circle", text };
+  return { time: t.time, position, color: TRADE_COLOR, shape: "circle", text };
 }
 
 function openTradeModal(kind, time, price) {
