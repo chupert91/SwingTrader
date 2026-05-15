@@ -19,7 +19,6 @@ from backend import backtest, ichimoku, indicator_registry, kv, scheduler, state
 from backend.alert_engine import AlertRule
 from backend.channels import REGRESSION_WINDOW, SIGMA_LEVELS, compute_channels
 from backend.data import fetch_bars
-from backend.indicators import macd, stoch_rsi
 from backend.volume import split_volume
 import backend.indicators_lib  # noqa: F401 — side-effect: registers indicators
 
@@ -73,8 +72,6 @@ def _prepare(ticker: str, period: str) -> pd.DataFrame:
 @app.get("/api/chart/{ticker}")
 def get_chart(ticker: str, period: str = FETCH_PERIOD):
     full = _prepare(ticker, period)
-    full["stoch_rsi_k"], full["stoch_rsi_d"] = stoch_rsi(full["close"])
-    full["macd_line"], full["macd_signal"], full["macd_hist"] = macd(full["close"])
     ichi = ichimoku.compute(full)
 
     crop_start = max(0, len(full) - REGRESSION_WINDOW)
@@ -421,18 +418,6 @@ def _serialize(df: pd.DataFrame, ticker: str, ichi: ichimoku.IchimokuComponents)
             overlays[f"upper_{k}sd"] = _line(times, df[f"upper_{k}sd"])
             overlays[f"lower_{k}sd"] = _line(times, df[f"lower_{k}sd"])
 
-    indicators = {
-        "stoch_rsi_k": _line(times, df["stoch_rsi_k"]),
-        "stoch_rsi_d": _line(times, df["stoch_rsi_d"]),
-        "macd_line": _line(times, df["macd_line"]),
-        "macd_signal": _line(times, df["macd_signal"]),
-        "macd_hist": [
-            {"time": t, "value": _f(v), "color": "#26a69a" if v >= 0 else "#ef5350"}
-            for t, v in zip(times, df["macd_hist"])
-            if pd.notna(v)
-        ],
-    }
-
     ichi_payload = _ichimoku_payload(times, ichi, shift=ICHIMOKU_SHIFT)
 
     latest = df.iloc[-1]
@@ -451,7 +436,6 @@ def _serialize(df: pd.DataFrame, ticker: str, ichi: ichimoku.IchimokuComponents)
         "volume_buy": volume_buy,
         "overlays": overlays,
         "ichimoku": ichi_payload,
-        "indicators": indicators,
         "summary": summary,
     }
 

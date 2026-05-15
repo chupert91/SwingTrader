@@ -790,14 +790,14 @@ html, body {
 main {
   position: relative;
   display: grid;
-  grid-template-rows: minmax(0, 1fr) 140px 160px;
+  grid-template-rows: minmax(0, 1fr);
   min-height: 0;
   min-width: 0;
 }
 
 /* Dynamic indicator panes added by the picker. JS appends one .pane.pane-dynamic
    per active indicator and extends main's grid-template-rows to match. */
-.pane-dynamic { /* same border + min-height as built-in indicator panes */ }
+.pane-dynamic { /* same border + min-height as the price pane */ }
 
 .pane {
   position: relative;
@@ -1845,7 +1845,7 @@ body.page-backtest { overflow: auto; }
   .summary .value { font-size: 13px; }
   .legend { display: none; }      /* legend info is also in chart */
   .layout { grid-template-columns: auto minmax(0, 1fr) 200px; }
-  main { grid-template-rows: minmax(0, 1fr) 120px 130px; }
+  main { grid-template-rows: minmax(0, 1fr); }
 }
 
 /* ===========================================================
@@ -1907,7 +1907,7 @@ body.page-backtest { overflow: auto; }
 
   /* Chart panes shrink — phones have less vertical room */
   main {
-    grid-template-rows: minmax(0, 1fr) 100px 110px;
+    grid-template-rows: minmax(0, 1fr);
   }
 
   /* Touch-friendly tap targets */
@@ -1953,7 +1953,7 @@ body.page-backtest { overflow: auto; }
   .ticker-form input { width: 70px; }
   .brand { font-size: 13px; }
   main {
-    grid-template-rows: minmax(0, 1fr) 90px 100px;
+    grid-template-rows: minmax(0, 1fr);
   }
 }
 
@@ -1962,7 +1962,7 @@ body.page-backtest { overflow: auto; }
    =========================================================== */
 @media (max-width: 900px) and (max-height: 500px) {
   main {
-    grid-template-rows: minmax(0, 1fr) 80px 80px;
+    grid-template-rows: minmax(0, 1fr);
   }
   .pane-label { font-size: 10px; padding: 1px 4px; }
 }

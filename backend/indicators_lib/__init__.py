@@ -6,6 +6,8 @@ the registry. Imports below are added as each indicator's port lands.
 """
 from __future__ import annotations
 
+from . import stoch_rsi  # noqa: F401
+from . import macd  # noqa: F401
 from . import supertrend  # noqa: F401
 from . import log_regression  # noqa: F401
 from . import reverse_cutlers_rsi  # noqa: F401

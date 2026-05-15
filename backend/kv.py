@@ -195,10 +195,23 @@ def set_ticker_drawings(ticker: str, blob: dict) -> None:
     set_json(KEY_DRAWINGS, data)
 
 
-# Active custom-indicator selection (global, not per-ticker). Each entry:
+# Active indicator selection (global, not per-ticker). Each entry:
 #   {"indicator_id": "supertrend", "params": {...}}
+#
+# When the key has *never* been written, fall back to a default set so a
+# fresh install shows the two old built-ins (Stoch RSI + MACD) — both now
+# live in the registry like everything else. Once the user PUTs anything
+# (including an empty list), their choice wins.
+DEFAULT_ACTIVE_INDICATORS: list[dict] = [
+    {"indicator_id": "stoch_rsi", "params": {}},
+    {"indicator_id": "macd", "params": {}},
+]
+
+
 def get_active_indicators() -> list[dict]:
-    raw = get_json(KEY_INDICATORS_ACTIVE, default=[]) or []
+    raw = get_json(KEY_INDICATORS_ACTIVE, default=None)
+    if raw is None:
+        return [dict(e) for e in DEFAULT_ACTIVE_INDICATORS]
     return raw if isinstance(raw, list) else []
 
 

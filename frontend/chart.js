@@ -3,14 +3,8 @@ const COLORS = {
   down: "#ef5350",
   reg: "#ffffff",
   band: "#7d8590",
-  sd1: "#f1c40f",  // still used by Stoch RSI ref lines
-  sd2: "#e67e22",  // still used by Stoch RSI ref lines
   grid: "#1f242c",
   text: "#8b949e",
-  stochK: "#58a6ff",
-  stochD: "#f1c40f",
-  macd: "#58a6ff",
-  signal: "#f1c40f",
   tenkan: "#3498db",
   kijun: "#c0392b",
   senkouA: "rgba(38, 166, 154, 0.55)",
@@ -46,8 +40,6 @@ const indicatorOptions = (showTime) => ({
 
 const containers = {
   price: document.getElementById("chart-price"),
-  stoch: document.getElementById("chart-stoch"),
-  macd: document.getElementById("chart-macd"),
 };
 const statusEl = document.getElementById("status");
 const summaryEl = document.getElementById("summary");
@@ -55,10 +47,10 @@ const form = document.getElementById("ticker-form");
 const input = document.getElementById("ticker-input");
 
 const priceChart = LightweightCharts.createChart(containers.price, baseOptions);
-const stochChart = LightweightCharts.createChart(containers.stoch, indicatorOptions(false));
-const macdChart = LightweightCharts.createChart(containers.macd, indicatorOptions(true));
 
-const allCharts = [priceChart, stochChart, macdChart];
+// Each entry in `allCharts` participates in time-scale + crosshair sync.
+// Dynamic indicator panes get pushed in by _createDynamicPane() at runtime.
+const allCharts = [priceChart];
 
 const candleSeries = priceChart.addCandlestickSeries({
   upColor: COLORS.up,
@@ -118,34 +110,6 @@ const ichimokuSeries = {
   chikou: addLine(priceChart, COLORS.chikou, 1, LightweightCharts.LineStyle.Dashed),
 };
 
-const stochKSeries = addLine(stochChart, COLORS.stochK, 2);
-const stochDSeries = addLine(stochChart, COLORS.stochD, 1.5);
-addReferenceLines(stochKSeries, [
-  { value: 80, color: COLORS.down, style: LightweightCharts.LineStyle.Dashed },
-  { value: 50, color: COLORS.text, style: LightweightCharts.LineStyle.Dotted },
-  { value: 20, color: COLORS.up, style: LightweightCharts.LineStyle.Dashed },
-]);
-
-const macdLineSeries = addLine(macdChart, COLORS.macd, 2);
-const macdSignalSeries = addLine(macdChart, COLORS.signal, 1.5);
-const macdHistSeries = macdChart.addHistogramSeries({
-  priceFormat: { type: "price", precision: 4, minMove: 0.0001 },
-  priceLineVisible: false,
-  lastValueVisible: false,
-});
-
-function addReferenceLines(series, lines) {
-  for (const { value, color, style } of lines) {
-    series.createPriceLine({
-      price: value,
-      color,
-      lineWidth: 1,
-      lineStyle: style,
-      axisLabelVisible: true,
-    });
-  }
-}
-
 // Sync time scales across all panes.
 let syncing = false;
 function syncTimeRange(source) {
@@ -175,10 +139,10 @@ function syncCrosshair(source) {
 allCharts.forEach(syncCrosshair);
 
 window.addEventListener("resize", () => {
-  for (const [key, el] of Object.entries(containers)) {
-    const chart = { price: priceChart, stoch: stochChart, macd: macdChart }[key];
-    chart.applyOptions({ width: el.clientWidth, height: el.clientHeight });
-  }
+  priceChart.applyOptions({
+    width: containers.price.clientWidth,
+    height: containers.price.clientHeight,
+  });
   for (const pane of _dynamicPanes.values()) {
     pane.chart.applyOptions({
       width: pane.chartEl.clientWidth,
@@ -254,11 +218,6 @@ function renderChart(data) {
       series.setData(data.ichimoku[key] || []);
     }
   }
-  stochKSeries.setData(data.indicators.stoch_rsi_k || []);
-  stochDSeries.setData(data.indicators.stoch_rsi_d || []);
-  macdLineSeries.setData(data.indicators.macd_line || []);
-  macdSignalSeries.setData(data.indicators.macd_signal || []);
-  macdHistSeries.setData(data.indicators.macd_hist || []);
   renderCustomIndicators(data.custom_indicators || []);
   priceChart.timeScale().fitContent();
   renderSummary(data.ticker, data.summary);
@@ -1696,12 +1655,15 @@ function _lwLineStyle(s) {
 }
 
 function _updateMainGridRows() {
-  // Built-in panes: price (1fr) + Stoch (140px) + MACD (160px). Each dynamic
-  // pane adds another 140px row. Setting the inline style overrides the
-  // CSS default and applies to all panes.
-  const base = "minmax(0, 1fr) 140px 160px";
-  const extra = " 140px".repeat(_dynamicPanes.size);
-  mainEl.style.gridTemplateRows = base + extra;
+  // Only the price pane is hardcoded (minmax(0,1fr) so it absorbs the
+  // remaining space). Each dynamic indicator pane with its own chart
+  // adds a 140px row. Overlay-only indicators don't add panes, just
+  // series — those still get tracked in _dynamicPanes but have no
+  // container; skip them when counting rows.
+  let panes = 0;
+  for (const p of _dynamicPanes.values()) if (p.container) panes++;
+  const extra = " 140px".repeat(panes);
+  mainEl.style.gridTemplateRows = "minmax(0, 1fr)" + extra;
 }
 
 function _tearDownDynamicPanes() {
