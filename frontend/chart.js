@@ -116,9 +116,15 @@ const ichimokuSeries = {
 
 // Sync time scales across all panes.
 let syncing = false;
+// During initial data loading we suppress the sync entirely: each chart's
+// autoSize fits its own data, and without suppression the dynamic panes (which
+// load with narrower data ranges than the price chart's candles+ichimoku) will
+// propagate their narrower range back to priceChart, shrinking it and hiding
+// the 26-bar ichimoku projection on the right.
+let _suppressSync = false;
 function syncTimeRange(source) {
   source.timeScale().subscribeVisibleLogicalRangeChange((range) => {
-    if (syncing || !range) return;
+    if (_suppressSync || syncing || !range) return;
     syncing = true;
     for (const c of allCharts) {
       if (c !== source) c.timeScale().setVisibleLogicalRange(range);
@@ -196,6 +202,11 @@ async function loadTicker(ticker) {
 }
 
 function renderChart(data) {
+  // Suppress cross-pane time-range sync until all data is loaded — otherwise
+  // a dynamic pane's autoSize fit to its narrower data will propagate back
+  // to priceChart and shrink its visible range, hiding the future projection.
+  _suppressSync = true;
+
   // Compute rightmost time on the chart (latest candle, or last Ichimoku projection).
   let right = data.candles?.length ? data.candles[data.candles.length - 1].time : null;
   const senkouA = data.ichimoku?.senkou_a || [];
@@ -237,21 +248,30 @@ function renderChart(data) {
     }
   }
   renderCustomIndicators(data.custom_indicators || []);
+  // Re-enable sync, then explicitly set the price chart's visible range. The
+  // sync will propagate this wider range to all dynamic panes (which have
+  // matching whitespace-padded logical indexing).
+  _suppressSync = false;
   _setInitialVisibleRange();
   renderSummary(data.ticker, data.summary);
 }
 
-// Show the most recent ~6 months of bars plus the 26-bar Ichimoku projection,
-// pinned to the right edge. Replaces fitContent() (which zoomed all the way
-// out to the full 14-month fetch window — too crowded to read).
-const INITIAL_VISIBLE_BARS = 130;
+// Show the most recent ~6 months of candle bars PLUS the 26-bar Ichimoku
+// projection PLUS the rightOffset buffer, pinned right. Counts those slots
+// separately so the future bars don't eat into the 130-candle budget.
+const INITIAL_VISIBLE_CANDLES = 130;
+const ICHIMOKU_FUTURE_BARS = 26;
+const RIGHT_OFFSET_BARS = 8;
 function _setInitialVisibleRange() {
   const total = _priceChartAllTimes.length;
   if (total === 0) { priceChart.timeScale().fitContent(); return; }
-  const fromIdx = Math.max(0, total - INITIAL_VISIBLE_BARS);
-  // total-1 is the rightmost data index; +8 mirrors baseOptions.timeScale.rightOffset
-  // so the chart's natural breathing room past the last bar stays consistent.
-  const toIdx = total - 1 + 8;
+  // _priceChartAllTimes already includes the 26 future ichimoku times, so
+  // subtract them to find the rightmost CANDLE index, then go back 130
+  // from there. The chart's rightOffset buffer extends past the last
+  // future time on the right edge.
+  const lastCandleIdx = total - 1 - ICHIMOKU_FUTURE_BARS;
+  const fromIdx = Math.max(0, lastCandleIdx - INITIAL_VISIBLE_CANDLES + 1);
+  const toIdx = total - 1 + RIGHT_OFFSET_BARS;
   try {
     priceChart.timeScale().setVisibleLogicalRange({ from: fromIdx, to: toIdx });
   } catch {
