@@ -18,7 +18,7 @@ from pydantic import BaseModel
 from backend import backtest, ichimoku, indicator_registry, kv, scheduler, state, watchlist
 from backend.alert_engine import AlertRule
 from backend.channels import REGRESSION_WINDOW, SIGMA_LEVELS, compute_channels
-from backend.data import fetch_bars
+from backend.data import fetch_bars, fetch_ticker_name
 from backend.volume import split_volume
 import backend.indicators_lib  # noqa: F401 — side-effect: registers indicators
 
@@ -427,6 +427,7 @@ def _serialize(df: pd.DataFrame, ticker: str, ichi: ichimoku.IchimokuComponents)
         "r_squared": _f(latest.get("r_squared", np.nan)),
         "slope_annual_pct": _f(_annual_slope_pct(df)),
         "window": REGRESSION_WINDOW,
+        "name": fetch_ticker_name(ticker),
     }
 
     return {

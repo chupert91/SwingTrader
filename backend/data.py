@@ -1,13 +1,17 @@
 """yfinance OHLCV fetcher with a small in-memory TTL cache."""
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass
 
 import pandas as pd
 import yfinance as yf
 
+logger = logging.getLogger(__name__)
+
 _CACHE_TTL_SECONDS = 60
+_INFO_TTL_SECONDS = 24 * 3600  # company name barely changes
 
 
 @dataclass
@@ -17,6 +21,31 @@ class _CacheEntry:
 
 
 _cache: dict[tuple[str, str], _CacheEntry] = {}
+_info_cache: dict[str, tuple[float, str]] = {}  # ticker -> (fetched_at, name)
+
+
+def fetch_ticker_name(ticker: str) -> str:
+    """Returns the full company / fund name from yfinance, or "" on failure.
+
+    Cached daily because .info makes a separate HTTP call that's pretty slow
+    (often 1-2s) — fine for one warmup hit per ticker, but we shouldn't pay
+    it on every chart load.
+    """
+    ticker = ticker.upper().strip()
+    if not ticker:
+        return ""
+    cached = _info_cache.get(ticker)
+    now = time.time()
+    if cached and now - cached[0] < _INFO_TTL_SECONDS:
+        return cached[1]
+    name = ""
+    try:
+        info = yf.Ticker(ticker).info or {}
+        name = info.get("longName") or info.get("shortName") or ""
+    except Exception as exc:
+        logger.warning("yfinance .info failed for %s: %s", ticker, exc)
+    _info_cache[ticker] = (now, name)
+    return name
 
 
 def fetch_bars(ticker: str, period: str = "1y") -> pd.DataFrame:

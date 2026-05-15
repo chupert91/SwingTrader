@@ -237,14 +237,33 @@ function renderChart(data) {
     }
   }
   renderCustomIndicators(data.custom_indicators || []);
-  priceChart.timeScale().fitContent();
+  _setInitialVisibleRange();
   renderSummary(data.ticker, data.summary);
+}
+
+// Show the most recent ~6 months of bars plus the 26-bar Ichimoku projection,
+// pinned to the right edge. Replaces fitContent() (which zoomed all the way
+// out to the full 14-month fetch window — too crowded to read).
+const INITIAL_VISIBLE_BARS = 130;
+function _setInitialVisibleRange() {
+  const total = _priceChartAllTimes.length;
+  if (total === 0) { priceChart.timeScale().fitContent(); return; }
+  const fromIdx = Math.max(0, total - INITIAL_VISIBLE_BARS);
+  // total-1 is the rightmost data index; +8 mirrors baseOptions.timeScale.rightOffset
+  // so the chart's natural breathing room past the last bar stays consistent.
+  const toIdx = total - 1 + 8;
+  try {
+    priceChart.timeScale().setVisibleLogicalRange({ from: fromIdx, to: toIdx });
+  } catch {
+    priceChart.timeScale().fitContent();
+  }
 }
 
 function renderSummary(ticker, s) {
   const sdClass = s.sd_position == null ? "" : s.sd_position > 1 ? "neg" : s.sd_position < -1 ? "pos" : "";
+  const name = s.name ? `<span class="company-name">${escapeHtml(s.name)}</span>` : "";
   summaryEl.innerHTML = `
-    <div><div class="label">${ticker} <span id="live-badge" class="live-badge" hidden></span></div><div class="value" id="summary-price">$${fmt(s.current_price, 2)}</div></div>
+    <div><div class="label">${ticker} ${name} <span id="live-badge" class="live-badge" hidden></span></div><div class="value" id="summary-price">$${fmt(s.current_price, 2)}</div></div>
     <div><div class="label">SD Position</div><div class="value ${sdClass}">${fmt(s.sd_position, 2)}σ</div></div>
     <div><div class="label">R²</div><div class="value">${fmt(s.r_squared, 3)}</div></div>
     <div><div class="label">Trend (annual)</div><div class="value ${s.slope_annual_pct > 0 ? "pos" : "neg"}">${fmt(s.slope_annual_pct, 1)}%</div></div>
