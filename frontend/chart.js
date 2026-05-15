@@ -205,6 +205,20 @@ function renderChart(data) {
   }
   lastChartRightTime = right;
 
+  // Capture every time slot the price chart will render (candles + ichimoku
+  // future projection). Dynamic indicator panes pad their time axes with
+  // whitespace at these times so their logical indexing matches the price
+  // chart's — otherwise the time-scale sync propagates a wider range than
+  // the dynamic data covers and the bottom panes look "shifted left".
+  const allTimes = new Set();
+  (data.candles || []).forEach(c => { if (c.time != null) allTimes.add(c.time); });
+  if (data.ichimoku) {
+    for (const arr of Object.values(data.ichimoku)) {
+      if (Array.isArray(arr)) arr.forEach(p => { if (p?.time != null) allTimes.add(p.time); });
+    }
+  }
+  _priceChartAllTimes = Array.from(allTimes).sort();
+
   // Snapshot the last bar so the live-quote poller can keep updating it
   // without re-fetching the full chart.
   const candles = data.candles || [];
@@ -1636,6 +1650,11 @@ scanBtn.addEventListener("click", async () => {
   }
 });
 
+// Every time slot the price chart renders (candles ∪ ichimoku future).
+// Populated by renderChart(); consumed by _padDynamicPaneTimeAxes() to keep
+// dynamic-pane logical indexing in lock-step with the price chart's.
+let _priceChartAllTimes = [];
+
 // --- Dynamic indicator panes ---------------------------------------------
 // One entry per active indicator with `has_own_pane: true`. Each entry owns
 // a DOM container, a Lightweight Charts instance, and lists of series it
@@ -1919,6 +1938,26 @@ function _renderPlotItem(item, paneEntry) {
   }
 }
 
+// Add a hidden whitespace series to each dynamic pane covering every time
+// slot the price chart renders. This makes their logical indexing match the
+// price chart so the time-scale sync doesn't shift bars left within the
+// pane.
+function _padDynamicPaneTimeAxes() {
+  if (_priceChartAllTimes.length === 0) return;
+  const whitespace = _priceChartAllTimes.map(t => ({ time: t }));
+  for (const p of _dynamicPanes.values()) {
+    if (!p.container) continue;
+    const s = p.chart.addLineSeries({
+      visible: false,
+      priceLineVisible: false,
+      lastValueVisible: false,
+      crosshairMarkerVisible: false,
+    });
+    s.setData(whitespace);
+    p.series.push(s);
+  }
+}
+
 // After dynamic panes are populated, equalize all right-price-scale widths so
 // the time axes line up horizontally. Without this, a pane whose axis labels
 // happen to be wider (e.g. "-100.00" vs "100") shifts its time axis left by
@@ -1971,6 +2010,7 @@ function renderCustomIndicators(indicators) {
     }
     _dynamicPanes.set(ind.indicator_id, paneEntry);
   }
+  _padDynamicPaneTimeAxes();
   _alignPriceScaleWidths();
 }
 
