@@ -18,6 +18,10 @@ const ICON_X = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strok
 const ICON_PLUS = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`;
 
 const baseOptions = {
+  // autoSize: true makes the chart watch its container with a ResizeObserver
+  // and re-render when the grid layout changes. Essential for dynamic panes
+  // whose containers are created before the grid row is widened to fit them.
+  autoSize: true,
   layout: {
     background: { type: "solid", color: "#0e1117" },
     textColor: COLORS.text,
@@ -1654,14 +1658,19 @@ function _lwLineStyle(s) {
   }
 }
 
-function _updateMainGridRows() {
+function _updateMainGridRows(ownPaneCount) {
   // Only the price pane is hardcoded (minmax(0,1fr) so it absorbs the
   // remaining space). Each dynamic indicator pane with its own chart
-  // adds a 140px row. Overlay-only indicators don't add panes, just
-  // series — those still get tracked in _dynamicPanes but have no
-  // container; skip them when counting rows.
-  let panes = 0;
-  for (const p of _dynamicPanes.values()) if (p.container) panes++;
+  // adds a 140px row. Overlay-only indicators don't add panes.
+  // Caller can pass an explicit count (used during renderCustomIndicators
+  // before _dynamicPanes is populated); otherwise we count what's in the map.
+  let panes;
+  if (typeof ownPaneCount === "number") {
+    panes = ownPaneCount;
+  } else {
+    panes = 0;
+    for (const p of _dynamicPanes.values()) if (p.container) panes++;
+  }
   const extra = " 140px".repeat(panes);
   mainEl.style.gridTemplateRows = "minmax(0, 1fr)" + extra;
 }
@@ -1810,6 +1819,12 @@ function _renderPlotItem(item, paneEntry) {
 
 function renderCustomIndicators(indicators) {
   _tearDownDynamicPanes();
+  // Reserve grid rows BEFORE creating chart instances so their containers
+  // have nonzero height at construction time. (autoSize handles late
+  // resizing too, but starting with the right layout avoids the brief
+  // 0-height flash and a missing-data fallback.)
+  const ownPaneCount = indicators.filter(i => i.has_own_pane).length;
+  _updateMainGridRows(ownPaneCount);
   for (const ind of indicators) {
     const paneEntry = ind.has_own_pane ? _createDynamicPane(ind) : {
       chart: priceChart, chartEl: containers.price, container: null,
@@ -1818,15 +1833,8 @@ function renderCustomIndicators(indicators) {
     for (const item of ind.items || []) {
       _renderPlotItem(item, paneEntry);
     }
-    if (ind.has_own_pane) {
-      _dynamicPanes.set(ind.indicator_id, paneEntry);
-    } else {
-      // Overlay-only indicators still need their series + price-lines
-      // tracked so the next reload can wipe them. Stash under a stable id.
-      _dynamicPanes.set(ind.indicator_id, paneEntry);
-    }
+    _dynamicPanes.set(ind.indicator_id, paneEntry);
   }
-  _updateMainGridRows();
 }
 
 // --- Indicators picker ---------------------------------------------------
