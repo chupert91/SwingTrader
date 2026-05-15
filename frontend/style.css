@@ -1003,36 +1003,16 @@ main {
 }
 
 /* ===========================================================
-   Discoveries sidebar section
+   Scanner page (also styles the per-row "discovery" items reused
+   on the scanner list)
    =========================================================== */
-.discoveries-section {
-  border-top: 1px solid var(--border);
-  font-size: 12px;
-  flex-shrink: 0;
-  max-height: 50%;
-  overflow-y: auto;
-}
-.discoveries-section > summary {
-  padding: 8px 14px;
-  cursor: pointer;
-  list-style: none;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--muted);
-  font-weight: 600;
-  user-select: none;
+.scanner-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
 }
-.discoveries-section > summary::-webkit-details-marker { display: none; }
-.discoveries-section > summary::after {
-  content: "▸";
-  margin-left: 6px;
-  transition: transform 0.15s;
-}
-.discoveries-section[open] > summary::after { transform: rotate(90deg); }
 
 .disc-refresh {
   background: transparent;

@@ -18,6 +18,7 @@
       <button type="submit">Load</button>
     </form>
     <div id="summary" class="summary"></div>
+    <a class="topbar-link" href="/scanner.html">Scanner →</a>
     <a class="topbar-link" href="/settings.html">Settings →</a>
     <a class="topbar-link" href="/backtest.html">Backtest →</a>
     <div class="legend" id="legend">
@@ -140,18 +141,6 @@
         <summary>My Trades</summary>
         <ul id="my-trades-list" class="my-trades-list"></ul>
         <div id="my-trades-empty" class="my-trades-empty">No trades marked. Use ▲/▼ on the chart toolbar.</div>
-      </details>
-      <details class="discoveries-section" id="discoveries-section">
-        <summary>Discoveries <button id="discoveries-refresh" type="button" title="Run scan now" class="disc-refresh" aria-label="Run scan now">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M3 12a9 9 0 0 1 15.5-6.3L21 8"/>
-            <path d="M21 3v5h-5"/>
-            <path d="M21 12a9 9 0 0 1-15.5 6.3L3 16"/>
-            <path d="M8 21H3v-5"/>
-          </svg>
-        </button></summary>
-        <div id="discoveries-meta" class="discoveries-meta">Scans S&amp;P 500 nightly for setups matching your Signal.</div>
-        <ul id="discoveries-list" class="discoveries-list"></ul>
       </details>
       <div class="alerts-section">
         <div class="alerts-header">

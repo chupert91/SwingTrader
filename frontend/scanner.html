@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0e1117" />
+  <title>Trisigma — Scanner</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body class="page-backtest">
+  <header class="topbar">
+    <div class="brand">Trisigma</div>
+    <a class="topbar-link" href="/">← Back to chart</a>
+    <a class="topbar-link" href="/settings.html">Settings</a>
+    <a class="topbar-link" href="/backtest.html">Backtest</a>
+    <div class="bt-page-title">Scanner</div>
+  </header>
+  <main class="bt-main">
+    <section class="bt-panel">
+      <div class="scanner-header">
+        <h2 class="bt-panel-title">S&amp;P 500 Setups</h2>
+        <button id="scanner-refresh" type="button" class="disc-refresh" title="Run scan now" aria-label="Run scan now">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 12a9 9 0 0 1 15.5-6.3L21 8"/>
+            <path d="M21 3v5h-5"/>
+            <path d="M21 12a9 9 0 0 1-15.5 6.3L3 16"/>
+            <path d="M8 21H3v-5"/>
+          </svg>
+        </button>
+      </div>
+      <p class="bt-hint">Scans the S&amp;P 500 nightly for setups matching your Signal (configured under <a href="/settings.html">Settings</a>). Click + to add a ticker to your chart watchlist; click the row to open it on the chart.</p>
+      <div id="scanner-meta" class="discoveries-meta">Loading…</div>
+      <ul id="scanner-list" class="discoveries-list"></ul>
+    </section>
+  </main>
+  <script src="/scanner.js"></script>
+</body>
+</html>
