@@ -1,0 +1,86 @@
+//@version=5
+indicator(title="Normalised Gaussian MACD Heikin Ashi [AlgoAlpha]", shorttitle="AlgoAlpha - 𝒢MACD", timeframe="", timeframe_gaps=true)
+
+// Getting inputs
+fast_length = input(title = "Fast Length", defval = 12)
+slow_length = input(title = "Slow Length", defval = 26)
+src = input(title = "Source", defval = close)
+smoothlen = input(title = "Macd Smoothing Length", defval = 14)
+signal_length = input.int(title = "Signal Smoothing",  minval = 1, maxval = 50, defval = 9, display = display.data_window)
+HA = input.bool(true, "Show Heikin Ashi Candles")
+shwline = input.bool(false, "Show MACD and Signal lines")
+upcol = input(#00ffbb, title = "Primary Up Colour")
+downcol = input(#ff1100, title = "Primary Down Colour")
+upcol1 = input(#79fcd9, title = "Secondary Up Colour")
+downcol1 = input(#fc7979, title = "Secondary Down Colour")
+
+gf(ser, length) =>
+    var filter = 0.0
+    beta = (1 - math.cos(2 * math.pi / length)) / (math.pow(2, 1 / 1) - 1)
+    alpha = -beta + math.sqrt(math.pow(beta, 2) + 2 * beta)
+    filter := alpha * ser + (1 - alpha) * nz(filter[1])
+
+f_macd(src, fast, slow) =>
+    (gf(src, fast_length) - gf(src, slow_length)) / (gf(high - low, slow)) * 100
+
+// Calculating
+macd = ta.hma(f_macd(src, fast_length, slow_length), smoothlen)
+signal = ta.ema(macd, signal_length)
+hist = macd - signal
+upperval = 80
+lowerval = 60
+
+openMACD = macd[1]
+highMACD = math.max(macd, macd[1])
+lowMACD = math.min(macd, macd[1])
+closeMACD = macd
+heikinAshiClose = (openMACD + highMACD + lowMACD + closeMACD) / 4
+heikinAshiOpen = float(na)
+heikinAshiOpen := na(heikinAshiOpen[1]) ? (openMACD + closeMACD) / 2 : (nz(heikinAshiOpen[1]) + nz(heikinAshiClose[1])) / 2
+heikinAshiHigh = math.max(highMACD, math.max(heikinAshiOpen, heikinAshiClose))
+heikinAshiLow = math.min(lowMACD, math.min(heikinAshiOpen, heikinAshiClose))
+
+ccoll = heikinAshiOpen > heikinAshiClose ? color.new(downcol, 0) : color.new(upcol, 100)
+ccol = heikinAshiOpen > heikinAshiClose ? color.new(downcol, 0) : color.new(upcol, 0)
+
+plotcandle(heikinAshiOpen, heikinAshiHigh, heikinAshiLow, heikinAshiClose, "MACD Line Candles", ccoll, ccol, bordercolor = ccol, display = HA ? display.all : display.none)
+
+hline(0, "Zero Line", color = color.new(#787B86, 50))
+plot(hist, title = "Histogram", style = plot.style_columns, color = (hist >= 0 ? (hist[1] < hist ? color.new(upcol1, 40) : color.new(upcol1, 80)) : (hist[1] < hist ? color.new(downcol1, 80) : color.new(downcol1, 40))))
+plot(hist, "Histogram Outline", color = hist > 0 ? upcol1 : downcol1)
+
+plot(macd, "MACD line", display = shwline ? display.all : display.none, color = color.gray)
+plot(signal, "Signal line", display = shwline ? display.all : display.none, color = color.gray)
+
+
+plotchar(ta.crossover(heikinAshiClose, -upperval) ? heikinAshiLow * 1.2 : na, "Bullish Reversal", "▲", location.absolute, upcol, size = size.tiny)
+plotchar(ta.crossunder(heikinAshiClose, upperval) ? heikinAshiHigh * 1.2 : na, "Bearish Reversal", "▼", location.absolute, downcol, size = size.tiny)
+
+// Hidden Levels
+maxLevelPlot = plot(upperval, display = display.none)
+minLevelPlot = plot(-upperval, display = display.none)
+upperMidLevelPlot = plot(lowerval, display = display.none)
+lowerMidLevelPlot = plot(-lowerval, display = display.none)
+
+// Fills
+fill(maxLevelPlot, upperMidLevelPlot, top_value = upperval, bottom_value = lowerval, top_color = color.new(downcol, 40), bottom_color = color.new(downcol, 80))
+fill(minLevelPlot, lowerMidLevelPlot, top_value = -lowerval, bottom_value = -upperval, top_color = color.new(upcol, 80), bottom_color = color.new(upcol, 40))
+
+//Alerts
+alertcondition(ta.crossover(heikinAshiClose, 0), "GMACD Bullish", "GMACD crossing over zero line")
+alertcondition(ta.crossunder(heikinAshiClose, 0), "GMACD Bearish", "GMACD crossing under zero line")
+
+alertcondition(ta.crossover(heikinAshiClose, -upperval), "GMACD Bullish Reversal", "GMACD Bullish Reversal")
+alertcondition(ta.crossunder(heikinAshiClose, upperval), "GMACD Bearish Reversal", "GMACD Bearish Reversal")
+
+alertcondition(ta.crossover(heikinAshiClose, heikinAshiOpen), "GMACD Bullish Swing", "GMACD Bullish Swing")
+alertcondition(ta.crossunder(heikinAshiClose, heikinAshiOpen), "GMACD Bearish Swing", "GMACD Bearish Swing")
+
+alertcondition(ta.crossover(hist, hist[1]), "Histogram Bullish Swing", "Histogram Bullish Swing")
+alertcondition(ta.crossunder(hist, hist[1]), "Histogram Bearish Swing", "Histogram Bearish Swing")
+
+alertcondition(ta.crossover(hist, 0), "Histogram Bullish", "Histogram crossing over zero line")
+alertcondition(ta.crossunder(hist, 0), "Histogram Bearish ", "Histogram crossing under zero line")
+
+alertcondition(hist[1] >= 0 and hist < 0, title='Rising to falling', message='The MACD histogram switched from a rising to falling state')
+alertcondition(hist[1] <= 0 and hist > 0, title='Falling to rising', message='The MACD histogram switched from a falling to rising state')

@@ -25,6 +25,7 @@ KEY_RULES = "swt:rules"
 KEY_LAST_FIRED = "swt:lastfired"
 KEY_HISTORY = "swt:history"
 KEY_DRAWINGS = "swt:drawings"
+KEY_INDICATORS_ACTIVE = "swt:indicators_active"
 MAX_HISTORY = 200
 
 _EMPTY_DRAWING = {"hlines": [], "trendlines": [], "fibs": [], "trades": []}
@@ -194,10 +195,22 @@ def set_ticker_drawings(ticker: str, blob: dict) -> None:
     set_json(KEY_DRAWINGS, data)
 
 
+# Active custom-indicator selection (global, not per-ticker). Each entry:
+#   {"indicator_id": "supertrend", "params": {...}}
+def get_active_indicators() -> list[dict]:
+    raw = get_json(KEY_INDICATORS_ACTIVE, default=[]) or []
+    return raw if isinstance(raw, list) else []
+
+
+def set_active_indicators(active: list[dict]) -> None:
+    set_json(KEY_INDICATORS_ACTIVE, active)
+
+
 __all__ = [
     "using_vercel_kv",
     "list_rules", "save_rules",
     "last_fired", "mark_fired",
     "history", "append_history",
     "get_ticker_drawings", "set_ticker_drawings",
+    "get_active_indicators", "set_active_indicators",
 ]

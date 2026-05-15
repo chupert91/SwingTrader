@@ -137,6 +137,19 @@
           <label><input type="checkbox" data-display="volume.bars"> Stacked bars</label>
         </fieldset>
       </details>
+      <details class="indicators-section" id="indicators-section">
+        <summary>
+          Indicators
+          <button id="indicators-add-btn" type="button" class="indicators-add-btn" title="Add indicator" aria-label="Add indicator">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true">
+              <line x1="12" y1="5" x2="12" y2="19"/>
+              <line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+          </button>
+        </summary>
+        <ul id="indicators-active-list" class="indicators-active-list"></ul>
+        <div id="indicators-empty" class="indicators-empty">No custom indicators. Use + to add one.</div>
+      </details>
       <details class="my-trades-section" id="my-trades-section">
         <summary>My Trades</summary>
         <ul id="my-trades-list" class="my-trades-list"></ul>
@@ -157,6 +170,26 @@
         <ul id="alerts-list" class="alerts-list"></ul>
       </div>
     </aside>
+  </div>
+  <div id="indicators-modal" class="indicators-modal" hidden>
+    <div class="indicators-modal-backdrop"></div>
+    <div class="indicators-modal-panel">
+      <div class="indicators-modal-title">Add Indicator</div>
+      <input id="indicators-search" class="indicators-search" type="text" placeholder="Search indicators..." autocomplete="off" />
+      <ul id="indicators-catalog" class="indicators-catalog"></ul>
+      <div id="indicators-params" class="indicators-params" hidden>
+        <div class="indicators-params-header">
+          <h3 id="indicators-params-title">—</h3>
+          <button type="button" id="indicators-params-back" class="indicators-params-back">← Back</button>
+        </div>
+        <div id="indicators-params-desc" class="indicators-params-desc"></div>
+        <form id="indicators-params-form" class="indicators-params-form"></form>
+      </div>
+      <div class="indicators-modal-actions">
+        <button type="button" id="indicators-modal-cancel">Cancel</button>
+        <button type="button" id="indicators-modal-save" disabled>Add</button>
+      </div>
+    </div>
   </div>
   <div id="trade-modal" class="trade-modal" hidden>
     <div class="trade-modal-backdrop"></div>

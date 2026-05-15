@@ -795,6 +795,10 @@ main {
   min-width: 0;
 }
 
+/* Dynamic indicator panes added by the picker. JS appends one .pane.pane-dynamic
+   per active indicator and extends main's grid-template-rows to match. */
+.pane-dynamic { /* same border + min-height as built-in indicator panes */ }
+
 .pane {
   position: relative;
   border-top: 1px solid var(--border);
@@ -1106,6 +1110,220 @@ main {
   text-align: center;
   font-style: italic;
 }
+
+/* ===========================================================
+   Indicators sidebar section + picker modal
+   =========================================================== */
+.indicators-section { border-top: 1px solid var(--border); }
+.indicators-section > summary {
+  padding: 8px 14px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+  font-weight: 600;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.indicators-section > summary::-webkit-details-marker { display: none; }
+.indicators-add-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  cursor: pointer;
+  padding: 2px 5px;
+  border-radius: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.indicators-add-btn svg { width: 12px; height: 12px; display: block; }
+.indicators-add-btn:hover { color: var(--accent); border-color: var(--accent); }
+
+.indicators-active-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.indicator-active-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 14px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+}
+.indicator-active-item .name { color: var(--text); font-weight: 600; }
+.indicator-active-item .params { color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+.indicator-active-row { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.indicator-active-actions { display: flex; gap: 4px; }
+.indicator-active-actions button {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  cursor: pointer;
+  padding: 2px 5px;
+  border-radius: 3px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.indicator-active-actions button:hover { color: var(--accent); border-color: var(--accent); }
+.indicator-active-actions svg { width: 12px; height: 12px; display: block; }
+
+.indicators-empty {
+  padding: 12px 14px;
+  color: var(--muted);
+  font-size: 11px;
+  font-style: italic;
+}
+.indicators-empty[hidden] { display: none; }
+
+.indicators-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.indicators-modal[hidden] { display: none; }
+.indicators-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+}
+.indicators-modal-panel {
+  position: relative;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 16px;
+  width: min(440px, 92vw);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+.indicators-modal-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+.indicators-search {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 6px 8px;
+  font-size: 12px;
+  border-radius: 3px;
+}
+.indicators-catalog {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  overflow-y: auto;
+  max-height: 50vh;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
+.indicator-catalog-item {
+  padding: 8px 10px;
+  cursor: pointer;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+}
+.indicator-catalog-item:first-child { border-top: none; }
+.indicator-catalog-item:hover { background: rgba(88, 166, 255, 0.08); }
+.indicator-catalog-item .name { color: var(--text); font-weight: 600; }
+.indicator-catalog-item .category {
+  color: var(--muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  margin-left: 6px;
+}
+.indicator-catalog-item .desc {
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+.indicators-params { display: flex; flex-direction: column; gap: 8px; }
+.indicators-params-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.indicators-params-header h3 { margin: 0; font-size: 12px; color: var(--text); font-weight: 600; }
+.indicators-params-back {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  padding: 3px 8px;
+  font-size: 11px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.indicators-params-back:hover { color: var(--accent); border-color: var(--accent); }
+.indicators-params-desc { color: var(--muted); font-size: 11px; }
+.indicators-params-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.indicators-params-form label {
+  display: flex;
+  flex-direction: column;
+  font-size: 10px;
+  color: var(--muted);
+  gap: 2px;
+}
+.indicators-params-form input[type="number"],
+.indicators-params-form input[type="text"],
+.indicators-params-form select {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 4px 6px;
+  font-size: 12px;
+  border-radius: 3px;
+}
+.indicators-params-form input[type="color"] {
+  width: 100%;
+  height: 26px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  border-radius: 3px;
+  padding: 1px;
+}
+.indicators-params-form .full { grid-column: 1 / -1; }
+
+.indicators-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.indicators-modal-actions button {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 6px 14px;
+  font-size: 12px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.indicators-modal-actions button:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
+.indicators-modal-actions button:disabled { opacity: 0.4; cursor: not-allowed; }
+#indicators-modal-save { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+#indicators-modal-save:hover:not(:disabled) { filter: brightness(1.1); }
 
 /* ===========================================================
    Trade entry modal

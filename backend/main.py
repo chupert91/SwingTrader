@@ -15,12 +15,13 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from backend import backtest, ichimoku, kv, scheduler, state, watchlist
+from backend import backtest, ichimoku, indicator_registry, kv, scheduler, state, watchlist
 from backend.alert_engine import AlertRule
 from backend.channels import REGRESSION_WINDOW, SIGMA_LEVELS, compute_channels
 from backend.data import fetch_bars
 from backend.indicators import macd, stoch_rsi
 from backend.volume import split_volume
+import backend.indicators_lib  # noqa: F401 — side-effect: registers indicators
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -85,7 +86,32 @@ def get_chart(ticker: str, period: str = FETCH_PERIOD):
         senkou_b=ichi.senkou_b.iloc[crop_start:].reset_index(drop=True),
         chikou=ichi.chikou.iloc[crop_start:].reset_index(drop=True),
     )
-    return JSONResponse(_serialize(df, ticker, ichi_cropped))
+    payload = _serialize(df, ticker, ichi_cropped)
+    payload["custom_indicators"] = indicator_registry.compute_active(
+        df, kv.get_active_indicators()
+    )
+    return JSONResponse(payload)
+
+
+@app.get("/api/indicators")
+def list_indicators() -> dict:
+    """Catalog of every indicator the user can enable from the picker."""
+    return {"indicators": [i.to_summary_dict() for i in indicator_registry.list_all()]}
+
+
+class ActiveIndicatorsPayload(BaseModel):
+    active: list[dict]
+
+
+@app.get("/api/indicators/active")
+def get_active_indicators() -> dict:
+    return {"active": kv.get_active_indicators()}
+
+
+@app.put("/api/indicators/active")
+def put_active_indicators(payload: ActiveIndicatorsPayload) -> dict:
+    kv.set_active_indicators(payload.active)
+    return {"ok": True, "active": payload.active}
 
 
 class WatchlistPayload(BaseModel):

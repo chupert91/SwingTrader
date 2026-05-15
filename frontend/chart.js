@@ -179,6 +179,12 @@ window.addEventListener("resize", () => {
     const chart = { price: priceChart, stoch: stochChart, macd: macdChart }[key];
     chart.applyOptions({ width: el.clientWidth, height: el.clientHeight });
   }
+  for (const pane of _dynamicPanes.values()) {
+    pane.chart.applyOptions({
+      width: pane.chartEl.clientWidth,
+      height: pane.chartEl.clientHeight,
+    });
+  }
 });
 
 form.addEventListener("submit", (e) => {
@@ -253,6 +259,7 @@ function renderChart(data) {
   macdLineSeries.setData(data.indicators.macd_line || []);
   macdSignalSeries.setData(data.indicators.macd_signal || []);
   macdHistSeries.setData(data.indicators.macd_hist || []);
+  renderCustomIndicators(data.custom_indicators || []);
   priceChart.timeScale().fitContent();
   renderSummary(data.ticker, data.summary);
 }
@@ -1666,6 +1673,435 @@ scanBtn.addEventListener("click", async () => {
   }
 });
 
+// --- Dynamic indicator panes ---------------------------------------------
+// One entry per active indicator with `has_own_pane: true`. Each entry owns
+// a DOM container, a Lightweight Charts instance, and lists of series it
+// created (so we can wipe everything cleanly when the chart reloads).
+//
+// Items with `pane: "price"` get rendered onto priceChart/candleSeries
+// instead; we track those series/price-lines under the same indicator
+// entry so a reload still wipes them.
+const _dynamicPanes = new Map();  // indicator_id -> { chart, chartEl, container, series[], priceSeries[], priceLines[] }
+const mainEl = document.querySelector("main");
+
+function _lwLineStyle(s) {
+  const LS = LightweightCharts.LineStyle;
+  switch (String(s || "").toLowerCase()) {
+    case "dashed": return LS.Dashed;
+    case "dotted": return LS.Dotted;
+    case "large_dashed": return LS.LargeDashed;
+    case "sparse_dotted": return LS.SparseDotted;
+    default: return LS.Solid;
+  }
+}
+
+function _updateMainGridRows() {
+  // Built-in panes: price (1fr) + Stoch (140px) + MACD (160px). Each dynamic
+  // pane adds another 140px row. Setting the inline style overrides the
+  // CSS default and applies to all panes.
+  const base = "minmax(0, 1fr) 140px 160px";
+  const extra = " 140px".repeat(_dynamicPanes.size);
+  mainEl.style.gridTemplateRows = base + extra;
+}
+
+function _tearDownDynamicPanes() {
+  for (const pane of _dynamicPanes.values()) {
+    for (const handle of pane.priceLines) {
+      try { candleSeries.removePriceLine(handle); } catch {}
+    }
+    for (const s of pane.priceSeries) {
+      try { priceChart.removeSeries(s); } catch {}
+    }
+    // Only dedicated-pane entries own their own chart/container — overlay-only
+    // entries share priceChart and have no DOM container.
+    if (pane.container) {
+      try { pane.chart.remove(); } catch {}
+      try { pane.container.remove(); } catch {}
+      const idx = allCharts.indexOf(pane.chart);
+      if (idx >= 0) allCharts.splice(idx, 1);
+    }
+  }
+  _dynamicPanes.clear();
+  _updateMainGridRows();
+}
+
+function _createDynamicPane(indicator) {
+  const container = document.createElement("div");
+  container.className = "pane pane-dynamic";
+  container.dataset.indicatorId = indicator.indicator_id;
+  const label = document.createElement("div");
+  label.className = "pane-label";
+  label.textContent = indicator.pane_title || indicator.name;
+  const chartEl = document.createElement("div");
+  chartEl.className = "chart";
+  container.appendChild(label);
+  container.appendChild(chartEl);
+  mainEl.insertBefore(container, document.getElementById("status"));
+
+  const chart = LightweightCharts.createChart(chartEl, indicatorOptions(false));
+  // Make the newly-created chart participate in time-scale + crosshair sync.
+  allCharts.push(chart);
+  syncTimeRange(chart);
+  syncCrosshair(chart);
+
+  if (indicator.pane_y_range && indicator.pane_y_range.length === 2) {
+    const [lo, hi] = indicator.pane_y_range;
+    chart.priceScale("right").applyOptions({
+      autoScale: false,
+      // Lightweight Charts has no direct fixed-range API; we approximate by
+      // disabling autoscale and trusting the indicator to keep data inside.
+    });
+    void lo; void hi;
+  }
+
+  return { chart, chartEl, container, series: [], priceSeries: [], priceLines: [] };
+}
+
+function _renderPlotItem(item, paneEntry) {
+  const style = item.style || {};
+  const onPrice = item.pane === "price";
+  const targetChart = onPrice ? priceChart : paneEntry.chart;
+
+  switch (item.kind) {
+    case "line": {
+      const s = targetChart.addLineSeries({
+        color: style.color || "#cccccc",
+        lineWidth: style.lineWidth ?? 1.5,
+        lineStyle: _lwLineStyle(style.lineStyle),
+        priceLineVisible: false,
+        lastValueVisible: !!style.lastValueVisible,
+        crosshairMarkerVisible: !onPrice,
+        title: style.title || "",
+      });
+      s.setData(item.data || []);
+      (onPrice ? paneEntry.priceSeries : paneEntry.series).push(s);
+      // Markers piggyback on the host series; record it for later setMarkers calls.
+      paneEntry._lastSeries = s;
+      break;
+    }
+    case "candle": {
+      const s = targetChart.addCandlestickSeries({
+        upColor: style.upColor || "#26a69a",
+        downColor: style.downColor || "#ef5350",
+        borderUpColor: style.borderUpColor || style.upColor || "#26a69a",
+        borderDownColor: style.borderDownColor || style.downColor || "#ef5350",
+        wickUpColor: style.wickUpColor || style.upColor || "#26a69a",
+        wickDownColor: style.wickDownColor || style.downColor || "#ef5350",
+      });
+      s.setData(item.data || []);
+      (onPrice ? paneEntry.priceSeries : paneEntry.series).push(s);
+      paneEntry._lastSeries = s;
+      break;
+    }
+    case "histogram": {
+      const s = targetChart.addHistogramSeries({
+        color: style.color || "#888888",
+        priceLineVisible: false,
+        lastValueVisible: false,
+        base: style.base ?? 0,
+      });
+      s.setData(item.data || []);
+      (onPrice ? paneEntry.priceSeries : paneEntry.series).push(s);
+      paneEntry._lastSeries = s;
+      break;
+    }
+    case "marker": {
+      // Lightweight Charts markers must attach to an existing series. Use
+      // the most-recently-created series in the same pane.
+      const host = paneEntry._lastSeries || paneEntry.series[0] || paneEntry.priceSeries[0];
+      if (host && Array.isArray(item.data)) {
+        try { host.setMarkers(item.data.slice()); } catch {}
+      }
+      break;
+    }
+    case "price_line": {
+      // Horizontal level. If pane="price", attaches to candleSeries on the
+      // price pane (and is tracked for explicit cleanup). If pane="own", it
+      // attaches to the most-recent series in this indicator's pane and
+      // gets cleaned up automatically when the pane chart is removed.
+      const host = item.pane === "own"
+        ? (paneEntry._lastSeries || paneEntry.series[0])
+        : candleSeries;
+      if (!host) break;
+      for (const entry of item.data || []) {
+        const handle = host.createPriceLine({
+          price: entry.price,
+          color: entry.color || style.color || "#cccccc",
+          lineWidth: entry.lineWidth ?? style.lineWidth ?? 1,
+          lineStyle: _lwLineStyle(entry.lineStyle || style.lineStyle),
+          axisLabelVisible: entry.axisLabelVisible !== false,
+          title: entry.title || "",
+        });
+        // Only track candleSeries handles for explicit teardown; own-pane
+        // handles are destroyed with the chart.
+        if (item.pane !== "own") paneEntry.priceLines.push(handle);
+      }
+      break;
+    }
+    case "fill": {
+      // Not yet implemented — Lightweight Charts needs paired AreaSeries
+      // or a baseline trick. Skipped for now; emit two line items instead.
+      break;
+    }
+  }
+}
+
+function renderCustomIndicators(indicators) {
+  _tearDownDynamicPanes();
+  for (const ind of indicators) {
+    const paneEntry = ind.has_own_pane ? _createDynamicPane(ind) : {
+      chart: priceChart, chartEl: containers.price, container: null,
+      series: [], priceSeries: [], priceLines: [],
+    };
+    for (const item of ind.items || []) {
+      _renderPlotItem(item, paneEntry);
+    }
+    if (ind.has_own_pane) {
+      _dynamicPanes.set(ind.indicator_id, paneEntry);
+    } else {
+      // Overlay-only indicators still need their series + price-lines
+      // tracked so the next reload can wipe them. Stash under a stable id.
+      _dynamicPanes.set(ind.indicator_id, paneEntry);
+    }
+  }
+  _updateMainGridRows();
+}
+
+// --- Indicators picker ---------------------------------------------------
+// Sidebar section lists active indicators with edit/remove; "+" opens a
+// modal showing the full catalog and per-indicator parameter form. Saves
+// go to /api/indicators/active and trigger a chart reload so the backend
+// re-computes the new selection.
+
+let _indicatorsCatalog = [];   // [{id, name, category, description, has_own_pane, params: [...]}]
+let _activeIndicators = [];    // [{indicator_id, params}]
+let _pickerCurrent = null;     // {id, params, isEdit} — what's being configured in the modal right now
+
+const _indActiveListEl = document.getElementById("indicators-active-list");
+const _indEmptyEl = document.getElementById("indicators-empty");
+const _indModalEl = document.getElementById("indicators-modal");
+const _indSearchEl = document.getElementById("indicators-search");
+const _indCatalogEl = document.getElementById("indicators-catalog");
+const _indParamsEl = document.getElementById("indicators-params");
+const _indParamsTitleEl = document.getElementById("indicators-params-title");
+const _indParamsDescEl = document.getElementById("indicators-params-desc");
+const _indParamsFormEl = document.getElementById("indicators-params-form");
+const _indParamsBackBtn = document.getElementById("indicators-params-back");
+const _indSaveBtn = document.getElementById("indicators-modal-save");
+const _indCancelBtn = document.getElementById("indicators-modal-cancel");
+const _indAddBtn = document.getElementById("indicators-add-btn");
+
+async function _fetchIndicatorsCatalog() {
+  try {
+    const resp = await fetch("/api/indicators");
+    if (!resp.ok) return;
+    const data = await resp.json();
+    _indicatorsCatalog = data.indicators || [];
+  } catch { /* keep empty */ }
+}
+
+async function _fetchActiveIndicators() {
+  try {
+    const resp = await fetch("/api/indicators/active");
+    if (!resp.ok) return;
+    const data = await resp.json();
+    _activeIndicators = data.active || [];
+  } catch { /* keep empty */ }
+}
+
+async function _saveActiveIndicators() {
+  try {
+    await fetch("/api/indicators/active", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ active: _activeIndicators }),
+    });
+  } catch { /* non-fatal */ }
+}
+
+function _findIndicatorSpec(id) {
+  return _indicatorsCatalog.find(i => i.id === id);
+}
+
+function _paramSummary(spec, params) {
+  if (!spec || !spec.params) return "";
+  // Render numeric/select params in declaration order; skip colors.
+  const bits = [];
+  for (const p of spec.params) {
+    if (p.type === "color") continue;
+    const v = params[p.id] ?? p.default;
+    bits.push(String(v));
+  }
+  return bits.length ? `(${bits.join(", ")})` : "";
+}
+
+function _renderActiveIndicatorsList() {
+  if (!_indActiveListEl) return;
+  _indActiveListEl.innerHTML = "";
+  if (_activeIndicators.length === 0) {
+    if (_indEmptyEl) _indEmptyEl.hidden = false;
+    return;
+  }
+  if (_indEmptyEl) _indEmptyEl.hidden = true;
+  for (const entry of _activeIndicators) {
+    const spec = _findIndicatorSpec(entry.indicator_id);
+    if (!spec) continue;
+    const li = document.createElement("li");
+    li.className = "indicator-active-item";
+    li.innerHTML = `
+      <div class="indicator-active-row">
+        <span class="name">${spec.name}</span>
+        <span class="params">${_paramSummary(spec, entry.params || {})}</span>
+      </div>
+      <div class="indicator-active-actions">
+        <button type="button" class="edit" title="Edit parameters" aria-label="Edit">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        </button>
+        <button type="button" class="remove" title="Remove" aria-label="Remove">${ICON_X}</button>
+      </div>
+    `;
+    li.querySelector(".edit").addEventListener("click", () => _openPicker(entry.indicator_id));
+    li.querySelector(".remove").addEventListener("click", async () => {
+      _activeIndicators = _activeIndicators.filter(e => e.indicator_id !== entry.indicator_id);
+      await _saveActiveIndicators();
+      _renderActiveIndicatorsList();
+      if (activeTicker) loadTicker(activeTicker);
+    });
+    _indActiveListEl.appendChild(li);
+  }
+}
+
+function _renderCatalog(filter) {
+  _indCatalogEl.innerHTML = "";
+  const q = (filter || "").toLowerCase().trim();
+  const matches = _indicatorsCatalog.filter(i =>
+    !q || i.name.toLowerCase().includes(q) || i.category.toLowerCase().includes(q) || i.description.toLowerCase().includes(q)
+  );
+  for (const spec of matches) {
+    const li = document.createElement("li");
+    li.className = "indicator-catalog-item";
+    li.innerHTML = `
+      <div><span class="name">${spec.name}</span><span class="category">${spec.category}</span></div>
+      <div class="desc">${spec.description || ""}</div>
+    `;
+    li.addEventListener("click", () => _showParamsForm(spec.id, /*existing*/ null));
+    _indCatalogEl.appendChild(li);
+  }
+}
+
+function _showParamsForm(indicatorId, existingParams) {
+  const spec = _findIndicatorSpec(indicatorId);
+  if (!spec) return;
+  _pickerCurrent = {
+    id: spec.id,
+    params: { ...Object.fromEntries(spec.params.map(p => [p.id, p.default])), ...(existingParams || {}) },
+    isEdit: !!existingParams,
+  };
+  _indParamsTitleEl.textContent = spec.name;
+  _indParamsDescEl.textContent = spec.description || "";
+  _indParamsFormEl.innerHTML = "";
+  for (const p of spec.params) {
+    const wrap = document.createElement("label");
+    if (p.type === "select" && Array.isArray(p.options)) wrap.classList.add("full");
+    if (p.help) wrap.classList.add("full");
+    const labelText = document.createElement("span");
+    labelText.textContent = p.label;
+    wrap.appendChild(labelText);
+    let inputEl;
+    if (p.type === "bool") {
+      inputEl = document.createElement("input");
+      inputEl.type = "checkbox";
+      inputEl.checked = !!_pickerCurrent.params[p.id];
+      inputEl.addEventListener("change", () => { _pickerCurrent.params[p.id] = inputEl.checked; });
+    } else if (p.type === "select") {
+      inputEl = document.createElement("select");
+      for (const opt of p.options || []) {
+        const o = document.createElement("option");
+        o.value = opt; o.textContent = opt;
+        if (_pickerCurrent.params[p.id] === opt) o.selected = true;
+        inputEl.appendChild(o);
+      }
+      inputEl.addEventListener("change", () => { _pickerCurrent.params[p.id] = inputEl.value; });
+    } else if (p.type === "color") {
+      inputEl = document.createElement("input");
+      inputEl.type = "color";
+      inputEl.value = _pickerCurrent.params[p.id];
+      inputEl.addEventListener("change", () => { _pickerCurrent.params[p.id] = inputEl.value; });
+    } else {
+      inputEl = document.createElement("input");
+      inputEl.type = "number";
+      if (p.min != null) inputEl.min = String(p.min);
+      if (p.max != null) inputEl.max = String(p.max);
+      if (p.step != null) inputEl.step = String(p.step);
+      inputEl.value = String(_pickerCurrent.params[p.id]);
+      inputEl.addEventListener("input", () => {
+        const v = p.type === "int" ? parseInt(inputEl.value, 10) : parseFloat(inputEl.value);
+        if (!Number.isNaN(v)) _pickerCurrent.params[p.id] = v;
+      });
+    }
+    wrap.appendChild(inputEl);
+    if (p.help) {
+      const help = document.createElement("span");
+      help.style.fontSize = "9px";
+      help.style.opacity = "0.7";
+      help.textContent = p.help;
+      wrap.appendChild(help);
+    }
+    _indParamsFormEl.appendChild(wrap);
+  }
+  _indCatalogEl.hidden = true;
+  _indSearchEl.hidden = true;
+  _indParamsEl.hidden = false;
+  _indSaveBtn.disabled = false;
+  _indSaveBtn.textContent = _pickerCurrent.isEdit ? "Save" : "Add";
+}
+
+function _openPicker(prefilledId /*optional*/) {
+  _indModalEl.hidden = false;
+  _indSearchEl.value = "";
+  _indSearchEl.hidden = false;
+  _indCatalogEl.hidden = false;
+  _indParamsEl.hidden = true;
+  _indSaveBtn.disabled = true;
+  _renderCatalog("");
+  if (prefilledId) {
+    const existing = _activeIndicators.find(e => e.indicator_id === prefilledId);
+    _showParamsForm(prefilledId, existing ? existing.params : null);
+  }
+}
+
+function _closePicker() {
+  _indModalEl.hidden = true;
+  _pickerCurrent = null;
+}
+
+async function _saveFromPicker() {
+  if (!_pickerCurrent) return;
+  _activeIndicators = _activeIndicators.filter(e => e.indicator_id !== _pickerCurrent.id);
+  _activeIndicators.push({ indicator_id: _pickerCurrent.id, params: _pickerCurrent.params });
+  await _saveActiveIndicators();
+  _renderActiveIndicatorsList();
+  _closePicker();
+  if (activeTicker) loadTicker(activeTicker);
+}
+
+_indAddBtn?.addEventListener("click", (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  _openPicker(null);
+});
+_indCancelBtn?.addEventListener("click", _closePicker);
+_indSaveBtn?.addEventListener("click", _saveFromPicker);
+_indParamsBackBtn?.addEventListener("click", () => {
+  _indParamsEl.hidden = true;
+  _indCatalogEl.hidden = false;
+  _indSearchEl.hidden = false;
+  _indSaveBtn.disabled = true;
+  _pickerCurrent = null;
+});
+_indSearchEl?.addEventListener("input", () => _renderCatalog(_indSearchEl.value));
+_indModalEl?.querySelector(".indicators-modal-backdrop")?.addEventListener("click", _closePicker);
+
 // --- Boot ----------------------------------------------------------------
 initDisplayControls();
 applyDisplay();
@@ -1686,10 +2122,15 @@ function _bootTicker() {
 // then render. Once that's settled, push a fresh signal-rule (with the
 // up-to-date ticker list) and load the initial chart.
 (async () => {
-  await fetchAndMergeWatchlist();
+  await Promise.all([
+    fetchAndMergeWatchlist(),
+    _fetchIndicatorsCatalog(),
+    _fetchActiveIndicators(),
+  ]);
   renderWatchlist();
   initWatchlistSortable();
   scheduleSignalRuleSync();
+  _renderActiveIndicatorsList();
   const t = _bootTicker();
   input.value = t;
   loadTicker(t);
