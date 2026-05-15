@@ -126,10 +126,15 @@ function syncTimeRange(source) {
   source.timeScale().subscribeVisibleLogicalRangeChange((range) => {
     if (_suppressSync || syncing || !range) return;
     syncing = true;
-    for (const c of allCharts) {
-      if (c !== source) c.timeScale().setVisibleLogicalRange(range);
+    try {
+      for (const c of allCharts) {
+        if (c !== source) {
+          try { c.timeScale().setVisibleLogicalRange(range); } catch {}
+        }
+      }
+    } finally {
+      syncing = false;
     }
-    syncing = false;
   });
 }
 allCharts.forEach(syncTimeRange);
@@ -138,11 +143,15 @@ allCharts.forEach(syncTimeRange);
 function syncCrosshair(source) {
   source.subscribeCrosshairMove((param) => {
     if (!param.time) {
-      for (const c of allCharts) if (c !== source) c.clearCrosshairPosition();
+      for (const c of allCharts) {
+        if (c !== source) { try { c.clearCrosshairPosition(); } catch {} }
+      }
       return;
     }
     for (const c of allCharts) {
-      if (c !== source) c.setCrosshairPosition(NaN, param.time, c.priceScale("right"));
+      if (c !== source) {
+        try { c.setCrosshairPosition(NaN, param.time, c.priceScale("right")); } catch {}
+      }
     }
   });
 }
@@ -248,11 +257,10 @@ function renderChart(data) {
     }
   }
   renderCustomIndicators(data.custom_indicators || []);
-  // Re-enable sync, then explicitly set the price chart's visible range. The
-  // sync will propagate this wider range to all dynamic panes (which have
-  // matching whitespace-padded logical indexing).
+  // Re-enable sync before _alignPriceScaleWidths' rAF fires — that rAF
+  // ends by calling _setInitialVisibleRange(), and we need the sync to
+  // propagate the resulting price-chart range to dynamic panes.
   _suppressSync = false;
-  _setInitialVisibleRange();
   renderSummary(data.ticker, data.summary);
 }
 
@@ -2001,32 +2009,38 @@ function _padDynamicPaneTimeAxes() {
 // the time axes line up horizontally. Without this, a pane whose axis labels
 // happen to be wider (e.g. "-100.00" vs "100") shifts its time axis left by
 // the difference, making bars no longer align with the price chart above.
+//
+// Then sets the price chart's visible range — done in the SAME rAF so the
+// `setVisibleLogicalRange` is the final write of the frame. Otherwise
+// applyOptions's price-scale change can trigger an auto-fit that overrides
+// our range on alternating loads.
 function _alignPriceScaleWidths() {
-  // Wait one frame so each chart has actually laid out its axis text before
-  // we read .width(). priceChart.priceScale("right").width() is computed
-  // from the longest label currently shown.
   requestAnimationFrame(() => {
     const charts = [priceChart];
     for (const p of _dynamicPanes.values()) {
       if (p.container) charts.push(p.chart);
     }
-    if (charts.length < 2) {
-      priceChart.priceScale("right").applyOptions({ minimumWidth: 0 });
-      return;
+    if (charts.length >= 2) {
+      let maxWidth = 0;
+      for (const c of charts) {
+        try {
+          const w = c.priceScale("right").width();
+          if (w > maxWidth) maxWidth = w;
+        } catch {}
+      }
+      if (maxWidth > 0) {
+        for (const c of charts) {
+          try {
+            c.priceScale("right").applyOptions({ minimumWidth: maxWidth });
+          } catch {}
+        }
+      }
+    } else {
+      try { priceChart.priceScale("right").applyOptions({ minimumWidth: 0 }); } catch {}
     }
-    let maxWidth = 0;
-    for (const c of charts) {
-      try {
-        const w = c.priceScale("right").width();
-        if (w > maxWidth) maxWidth = w;
-      } catch {}
-    }
-    if (maxWidth <= 0) return;
-    for (const c of charts) {
-      try {
-        c.priceScale("right").applyOptions({ minimumWidth: maxWidth });
-      } catch {}
-    }
+    // Final write of the frame: set the visible range. Sync propagates it
+    // to dynamic panes (which have whitespace-padded logical indexing).
+    _setInitialVisibleRange();
   });
 }
 
