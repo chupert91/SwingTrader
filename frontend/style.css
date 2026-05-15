@@ -799,6 +799,24 @@ main {
    per active indicator and extends main's grid-template-rows to match. */
 .pane-dynamic { /* same border + min-height as the price pane */ }
 
+/* Drag handle at the top of each dynamic pane to resize its height. */
+.pane-resize-handle {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 5px;
+  z-index: 4;
+  cursor: row-resize;
+  background: transparent;
+  touch-action: none;
+  transition: background-color 80ms linear;
+}
+.pane-resize-handle:hover,
+.pane-resize-handle.dragging {
+  background: rgba(88, 166, 255, 0.45);
+}
+
 .pane {
   position: relative;
   border-top: 1px solid var(--border);

@@ -1671,21 +1671,48 @@ function _withAlpha(color, alpha) {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
-function _updateMainGridRows(ownPaneCount) {
-  // Only the price pane is hardcoded (minmax(0,1fr) so it absorbs the
-  // remaining space). Each dynamic indicator pane with its own chart
-  // adds a 140px row. Overlay-only indicators don't add panes.
-  // Caller can pass an explicit count (used during renderCustomIndicators
-  // before _dynamicPanes is populated); otherwise we count what's in the map.
-  let panes;
-  if (typeof ownPaneCount === "number") {
-    panes = ownPaneCount;
+// Per-indicator pane heights (px), persisted to localStorage so the user's
+// resize stays sticky across reloads.
+const PANE_HEIGHTS_KEY = "swingtrader.paneHeights";
+const DEFAULT_PANE_HEIGHT = 140;
+const MIN_PANE_HEIGHT = 60;
+let _paneHeights = (function _loadPaneHeights() {
+  try {
+    const raw = localStorage.getItem(PANE_HEIGHTS_KEY);
+    const obj = raw ? JSON.parse(raw) : {};
+    const m = new Map();
+    for (const [k, v] of Object.entries(obj)) {
+      const n = Number(v);
+      if (Number.isFinite(n) && n >= MIN_PANE_HEIGHT) m.set(k, n);
+    }
+    return m;
+  } catch { return new Map(); }
+})();
+function _savePaneHeights() {
+  try {
+    localStorage.setItem(PANE_HEIGHTS_KEY, JSON.stringify(Object.fromEntries(_paneHeights)));
+  } catch {}
+}
+
+function _updateMainGridRows(ownPaneIds) {
+  // The price pane (minmax(0,1fr)) absorbs remaining space; each dynamic
+  // own-pane indicator adds an explicit row using its persisted height
+  // (or DEFAULT_PANE_HEIGHT). Caller can pass an explicit list of indicator
+  // ids (used during renderCustomIndicators before _dynamicPanes is
+  // populated); otherwise we derive the list from current _dynamicPanes.
+  let ids;
+  if (Array.isArray(ownPaneIds)) {
+    ids = ownPaneIds;
   } else {
-    panes = 0;
-    for (const p of _dynamicPanes.values()) if (p.container) panes++;
+    ids = [];
+    for (const [id, p] of _dynamicPanes) if (p.container) ids.push(id);
   }
-  const extra = " 140px".repeat(panes);
-  mainEl.style.gridTemplateRows = "minmax(0, 1fr)" + extra;
+  let rows = "minmax(0, 1fr)";
+  for (const id of ids) {
+    const h = _paneHeights.get(id) || DEFAULT_PANE_HEIGHT;
+    rows += ` ${h}px`;
+  }
+  mainEl.style.gridTemplateRows = rows;
 }
 
 function _tearDownDynamicPanes() {
@@ -1709,15 +1736,50 @@ function _tearDownDynamicPanes() {
   _updateMainGridRows();
 }
 
+function _attachPaneResize(handle, container, indicatorId) {
+  // Pointer-based row resize. Drag up = pane taller; drag down = pane
+  // shorter. Persisted per indicator_id.
+  let startY = 0;
+  let startHeight = 0;
+  const onMove = (e) => {
+    const dy = e.clientY - startY;
+    const maxH = Math.max(MIN_PANE_HEIGHT * 2, window.innerHeight - 220);
+    const h = Math.max(MIN_PANE_HEIGHT, Math.min(maxH, startHeight - dy));
+    _paneHeights.set(indicatorId, h);
+    _updateMainGridRows();
+  };
+  const onUp = () => {
+    handle.classList.remove("dragging");
+    document.removeEventListener("pointermove", onMove);
+    document.removeEventListener("pointerup", onUp);
+    document.body.style.userSelect = "";
+    _savePaneHeights();
+  };
+  handle.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    handle.classList.add("dragging");
+    startY = e.clientY;
+    startHeight = container.clientHeight;
+    document.body.style.userSelect = "none";
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp);
+  });
+}
+
 function _createDynamicPane(indicator) {
   const container = document.createElement("div");
   container.className = "pane pane-dynamic";
   container.dataset.indicatorId = indicator.indicator_id;
+  const handle = document.createElement("div");
+  handle.className = "pane-resize-handle";
+  handle.title = "Drag to resize";
+  _attachPaneResize(handle, container, indicator.indicator_id);
   const label = document.createElement("div");
   label.className = "pane-label";
   label.textContent = indicator.pane_title || indicator.name;
   const chartEl = document.createElement("div");
   chartEl.className = "chart";
+  container.appendChild(handle);
   container.appendChild(label);
   container.appendChild(chartEl);
   mainEl.insertBefore(container, document.getElementById("status"));
@@ -1861,9 +1923,10 @@ function renderCustomIndicators(indicators) {
   // Reserve grid rows BEFORE creating chart instances so their containers
   // have nonzero height at construction time. (autoSize handles late
   // resizing too, but starting with the right layout avoids the brief
-  // 0-height flash and a missing-data fallback.)
-  const ownPaneCount = indicators.filter(i => i.has_own_pane).length;
-  _updateMainGridRows(ownPaneCount);
+  // 0-height flash and a missing-data fallback.) Pass the id list so
+  // persisted heights apply immediately on first render.
+  const ownPaneIds = indicators.filter(i => i.has_own_pane).map(i => i.indicator_id);
+  _updateMainGridRows(ownPaneIds);
   for (const ind of indicators) {
     const paneEntry = ind.has_own_pane ? _createDynamicPane(ind) : {
       chart: priceChart, chartEl: containers.price, container: null,
