@@ -514,6 +514,7 @@ async function _pollOnce() {
     _setLiveBadge("delayed");
     return;
   }
+  _pollWatchlistPrices();  // independent of the active-ticker fetch below
   try {
     const resp = await fetch(`/api/quote/${encodeURIComponent(activeTicker)}`);
     if (!resp.ok) {
@@ -537,6 +538,27 @@ async function _pollOnce() {
   } catch {
     _setLiveBadge("delayed");
   }
+}
+
+// Refresh each watchlist row's price off the same cheap /api/quote feed,
+// in parallel, soft-failing per row. Price only: sigma needs the full
+// regression and barely moves intraday, so it holds until the next render.
+async function _pollWatchlistPrices() {
+  if (!watchlistEl) return;
+  const items = Array.from(watchlistEl.querySelectorAll(".watchlist-item"));
+  await Promise.all(items.map(async (li) => {
+    const ticker = li.dataset.ticker;
+    if (!ticker) return;
+    try {
+      const resp = await fetch(`/api/quote/${encodeURIComponent(ticker)}`);
+      if (!resp.ok) return;
+      const data = await resp.json();
+      if (typeof data.price === "number") {
+        const priceEl = li.querySelector(".wl-price");
+        if (priceEl) priceEl.textContent = `$${data.price.toFixed(2)}`;
+      }
+    } catch { /* soft-fail: keep last shown price */ }
+  }));
 }
 
 function startQuotePolling() {
