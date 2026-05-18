@@ -250,6 +250,56 @@ def run_rule_scan(request: Request) -> dict:
     return run_scan()
 
 
+# ---- Autonomous AI options trader ----------------------------------------
+
+class AISettingsPayload(BaseModel):
+    enabled: bool | None = None
+    premium_cap_usd: float | None = None
+    max_concurrent: int | None = None
+    disaster_stop_enabled: bool | None = None
+    disaster_stop_pct: float | None = None
+    take_profit_pct: float | None = None
+    time_stop_days: int | None = None
+    otm_pct: float | None = None
+    dte_min: int | None = None
+    dte_max: int | None = None
+    entry_limit_buffer_pct: float | None = None
+
+
+@app.get("/api/ai/state")
+def get_ai_state() -> dict:
+    from backend import ai_trader
+    return ai_trader.snapshot()
+
+
+@app.post("/api/ai/settings")
+def post_ai_settings(payload: AISettingsPayload) -> dict:
+    from backend import ai_store
+    patch = {k: v for k, v in payload.model_dump().items() if v is not None}
+    return {"ok": True, "settings": ai_store.save_settings(patch)}
+
+
+@app.post("/api/ai/run")
+def post_ai_run() -> dict:
+    """Browser 'Run now' — same pipeline as the cron, no auth (UI path)."""
+    from backend import ai_trader
+    return ai_trader.run_cron(manual=True)
+
+
+@app.api_route("/api/ai/cron", methods=["GET", "POST"])
+def ai_cron(request: Request) -> dict:
+    """Hourly Vercel cron. CRON_SECRET-gated (Bearer) like /api/scan. The
+    handler self-gates to US market hours via the Alpaca clock, so a wide
+    UTC cron window is fine."""
+    expected = os.environ.get("CRON_SECRET")
+    if expected:
+        auth = request.headers.get("authorization") or request.headers.get("Authorization", "")
+        if auth != f"Bearer {expected}":
+            raise HTTPException(status_code=401, detail="unauthorized")
+    from backend import ai_trader
+    return ai_trader.run_cron(manual=False)
+
+
 class BacktestConfigPayload(BaseModel):
     long_enabled: bool = True
     short_enabled: bool = True

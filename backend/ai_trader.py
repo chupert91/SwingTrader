@@ -1,0 +1,483 @@
+"""Autonomous AI options trader — orchestration / cron brain.
+
+One entrypoint, run_cron(), called by the hourly Vercel cron and the manual
+"Run now" button. Responsibilities:
+
+  bookkeeping (always, even if the kill-switch is off so in-flight trades
+  stay managed): reconcile each open trade against Alpaca orders/positions,
+  detect fills, re-arm the resting +30% take-profit and the disaster stop,
+  enforce the ~10-trading-day time stop, finalize P&L on close.
+
+  entry (once per trading day, only when market is open AND enabled): scan
+  the validated oversold-call signal, walk the tier-ranked list, and place
+  marketable buy-limit orders subject to the per-trade premium cap, the
+  max-concurrent cap, and Alpaca options buying power.
+
+Order/exit design (see the long design discussion + memory): entries are
+marketable limits (never market — option spreads); take-profit is a resting
+sell limit re-armed every session (Alpaca options TIF is day-safe either
+way); the disaster stop is a native single-leg stop order; the time stop is
+the only thing that needs this scheduled job. Loss control is sizing +
+concurrency + time stop, not a tight price stop.
+"""
+from __future__ import annotations
+
+import logging
+from datetime import date, datetime, timedelta, timezone
+
+from backend import ai_store
+from backend import ai_strategy
+from backend import alpaca_trading as at
+
+logger = logging.getLogger(__name__)
+
+OPTION_MULTIPLIER = 100
+BUYING_POWER_SLACK = 0.97  # don't deploy the last few % of options BP
+MAX_REPRICE_ATTEMPTS = 1
+
+
+# ---- helpers --------------------------------------------------------------
+
+def _f(x, default=None):
+    try:
+        if x is None or x == "":
+            return default
+        return float(x)
+    except (TypeError, ValueError):
+        return default
+
+
+def _et_date(clock: dict) -> str:
+    """Eastern date string from the Alpaca clock timestamp (DST-correct
+    because the clock carries an offset-aware ISO timestamp)."""
+    ts = clock.get("timestamp")
+    try:
+        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    except Exception:
+        dt = datetime.now(timezone.utc)
+    # Alpaca's clock timestamp is already US/Eastern wall-clock with offset;
+    # taking its date is the trading date.
+    return dt.date().isoformat()
+
+
+def _trading_days_since(iso_ts: str) -> int:
+    """Weekday count from a fill timestamp to now (holidays ignored — the
+    10-day stop is a soft heuristic; off-by-one over two weeks is fine)."""
+    try:
+        start = datetime.fromisoformat(iso_ts.replace("Z", "+00:00")).date()
+    except Exception:
+        return 0
+    end = datetime.now(timezone.utc).date()
+    days = 0
+    d = start
+    while d < end:
+        d += timedelta(days=1)
+        if d.weekday() < 5:
+            days += 1
+    return days
+
+
+# ---- exit / bookkeeping ---------------------------------------------------
+
+def _arm_exits(trade: dict, settings: dict, actions: list) -> None:
+    """Ensure a resting +TP limit and (optional) disaster stop exist for an
+    open trade. Re-arms anything that lapsed (day-TIF) or is missing."""
+    entry = trade.get("entry") or {}
+    fill = _f(entry.get("fill_price"))
+    qty = int(entry.get("qty") or 1)
+    symbol = (trade.get("contract") or {}).get("symbol")
+    if not fill or not symbol:
+        return
+
+    tp = trade.get("tp") or {}
+    need_tp = True
+    if tp.get("order_id"):
+        try:
+            o = at.get_order(tp["order_id"])
+            if o.get("status") in ("new", "accepted", "pending_new", "partially_filled", "held"):
+                need_tp = False
+            elif o.get("status") == "filled":
+                need_tp = False  # handled by _reconcile as a close
+        except at.AlpacaError:
+            pass
+    if need_tp:
+        tp_price = round(fill * (1 + settings["take_profit_pct"] / 100.0), 2)
+        try:
+            o = at.submit_order(symbol, qty, "sell", "limit", "day", limit_price=tp_price)
+            trade["tp"] = {"order_id": o.get("id"), "limit_price": tp_price, "status": "working"}
+            actions.append(f"{trade['ticker']}: armed TP limit {tp_price}")
+        except at.AlpacaError as exc:
+            actions.append(f"{trade['ticker']}: TP arm failed: {exc}")
+
+    if not settings.get("disaster_stop_enabled"):
+        return
+    ds = trade.get("disaster_stop") or {}
+    need_ds = True
+    if ds.get("order_id"):
+        try:
+            o = at.get_order(ds["order_id"])
+            if o.get("status") in ("new", "accepted", "pending_new", "held"):
+                need_ds = False
+            elif o.get("status") == "filled":
+                need_ds = False
+        except at.AlpacaError:
+            pass
+    if need_ds:
+        ds_price = round(fill * (1 - settings["disaster_stop_pct"] / 100.0), 2)
+        try:
+            o = at.submit_order(symbol, qty, "sell", "stop", "day", stop_price=ds_price)
+            trade["disaster_stop"] = {"order_id": o.get("id"), "stop_price": ds_price, "status": "working"}
+            actions.append(f"{trade['ticker']}: armed disaster stop {ds_price}")
+        except at.AlpacaError as exc:
+            actions.append(f"{trade['ticker']}: disaster-stop arm failed: {exc}")
+
+
+def _finalize_close(trade: dict, exit_price: float, reason: str, actions: list) -> None:
+    entry = trade.get("entry") or {}
+    ep = _f(entry.get("fill_price")) or 0.0
+    qty = int(entry.get("qty") or 1)
+    realized = round((exit_price - ep) * OPTION_MULTIPLIER * qty, 2)
+    pct = round((exit_price / ep - 1.0) * 100.0, 1) if ep else 0.0
+    trade["status"] = "closed"
+    trade["exit"] = {**(trade.get("exit") or {}), "reason": reason,
+                     "fill_price": exit_price, "filled_at": ai_store.now_iso()}
+    trade["pnl"] = {"realized_usd": realized, "realized_pct": pct}
+    actions.append(f"{trade['ticker']}: CLOSED {reason} pnl ${realized} ({pct}%)")
+    # Cancel any sibling resting order.
+    for k in ("tp", "disaster_stop"):
+        oid = (trade.get(k) or {}).get("order_id")
+        if oid:
+            at.cancel_order(oid)
+
+
+def _reconcile(trade: dict, settings: dict, clock_open: bool, actions: list) -> None:
+    st = trade.get("status")
+
+    if st == "pending_entry":
+        entry = trade.get("entry") or {}
+        oid = entry.get("order_id")
+        if not oid:
+            return
+        try:
+            o = at.get_order(oid)
+        except at.AlpacaError as exc:
+            actions.append(f"{trade['ticker']}: entry order lookup failed: {exc}")
+            return
+        ostat = o.get("status")
+        if ostat == "filled":
+            fp = _f(o.get("filled_avg_price"))
+            entry["fill_price"] = fp
+            entry["qty"] = int(_f(o.get("filled_qty"), 1) or 1)
+            entry["filled_at"] = o.get("filled_at") or ai_store.now_iso()
+            trade["entry"] = entry
+            trade["status"] = "open"
+            actions.append(f"{trade['ticker']}: ENTRY filled @ {fp}")
+            _arm_exits(trade, settings, actions)
+        elif ostat in ("canceled", "expired", "rejected", "done_for_day"):
+            attempts = entry.get("reprice_attempts", 0)
+            if attempts < MAX_REPRICE_ATTEMPTS and clock_open:
+                # One reprice at the fresh ask; else abandon (stale signal).
+                q = at.latest_option_quote((trade.get("contract") or {}).get("symbol", ""))
+                ask = (q or {}).get("ask")
+                if ask:
+                    lp = round(ask * (1 + settings["entry_limit_buffer_pct"] / 100.0), 2)
+                    try:
+                        no = at.submit_order(trade["contract"]["symbol"], 1, "buy", "limit", "day", limit_price=lp)
+                        entry.update({"order_id": no.get("id"), "limit_price": lp,
+                                      "reprice_attempts": attempts + 1})
+                        trade["entry"] = entry
+                        actions.append(f"{trade['ticker']}: entry repriced -> {lp}")
+                        return
+                    except at.AlpacaError as exc:
+                        actions.append(f"{trade['ticker']}: reprice failed: {exc}")
+            trade["status"] = "canceled"
+            trade["exit"] = {"reason": "entry_unfilled"}
+            actions.append(f"{trade['ticker']}: entry abandoned (unfilled)")
+        return
+
+    if st in ("open", "closing"):
+        symbol = (trade.get("contract") or {}).get("symbol", "")
+        # Take-profit hit?
+        tp = trade.get("tp") or {}
+        if tp.get("order_id"):
+            try:
+                o = at.get_order(tp["order_id"])
+                if o.get("status") == "filled":
+                    _finalize_close(trade, _f(o.get("filled_avg_price")) or 0.0,
+                                    "take_profit", actions)
+                    return
+            except at.AlpacaError:
+                pass
+        # Disaster stop hit?
+        ds = trade.get("disaster_stop") or {}
+        if ds.get("order_id"):
+            try:
+                o = at.get_order(ds["order_id"])
+                if o.get("status") == "filled":
+                    _finalize_close(trade, _f(o.get("filled_avg_price")) or 0.0,
+                                    "disaster_stop", actions)
+                    return
+            except at.AlpacaError:
+                pass
+        # Closing order (time-stop market close) confirmation.
+        if st == "closing":
+            ex = trade.get("exit") or {}
+            if ex.get("order_id"):
+                try:
+                    o = at.get_order(ex["order_id"])
+                    if o.get("status") == "filled":
+                        _finalize_close(trade, _f(o.get("filled_avg_price")) or 0.0,
+                                        ex.get("reason", "time_stop"), actions)
+                        return
+                except at.AlpacaError:
+                    pass
+            return
+
+        # Still open: time stop?
+        entry = trade.get("entry") or {}
+        held = _trading_days_since(entry.get("filled_at", ""))
+        if held >= settings["time_stop_days"] and clock_open:
+            for k in ("tp", "disaster_stop"):
+                oid = (trade.get(k) or {}).get("order_id")
+                if oid:
+                    at.cancel_order(oid)
+            try:
+                o = at.close_position(symbol)
+                trade["status"] = "closing"
+                trade["exit"] = {"reason": "time_stop", "order_id": o.get("id"),
+                                 "submitted_at": ai_store.now_iso()}
+                actions.append(f"{trade['ticker']}: time stop ({held}d) -> closing")
+            except at.AlpacaError as exc:
+                actions.append(f"{trade['ticker']}: time-stop close failed: {exc}")
+            return
+
+        # Position vanished without our exit (manual/external close).
+        try:
+            positions = {p.get("symbol") for p in at.list_option_positions()}
+            if symbol and symbol not in positions and st == "open":
+                trade["status"] = "closed"
+                trade["exit"] = {"reason": "external"}
+                trade["pnl"] = trade.get("pnl") or {"realized_usd": None, "realized_pct": None}
+                actions.append(f"{trade['ticker']}: position gone (external close)")
+        except at.AlpacaError:
+            pass
+        else:
+            if trade.get("status") == "open":
+                _arm_exits(trade, settings, actions)
+
+
+# ---- entry ----------------------------------------------------------------
+
+def _run_entries(settings: dict, account: dict, actions: list, skips: list) -> int:
+    placed = 0
+    max_conc = int(settings["max_concurrent"])
+    held_tickers = {t["ticker"] for t in ai_store.list_trades()
+                    if t.get("status") in ("pending_entry", "open", "closing")}
+    slots = max_conc - len(held_tickers)
+    if slots <= 0:
+        skips.append(f"no slots ({len(held_tickers)}/{max_conc} used)")
+        return 0
+
+    opt_bp = _f(account.get("options_buying_power"), 0.0) or 0.0
+    cap = float(settings["premium_cap_usd"])
+
+    try:
+        candidates = ai_strategy.scan_candidates()
+    except Exception as exc:
+        logger.exception("scan failed")
+        skips.append(f"scan error: {exc!r}")
+        return 0
+
+    for c in candidates:
+        if slots <= 0:
+            break
+        tier = c.get("tier")
+        if tier in ("WEAK", "?"):
+            continue  # playbook: skip weak / lone
+        if c["ticker"] in held_tickers:
+            continue
+        contract = ai_strategy.pick_contract(
+            c["ticker"], c["price"],
+            otm_pct=settings["otm_pct"],
+            dte_min=int(settings["dte_min"]),
+            dte_max=int(settings["dte_max"]),
+        )
+        if not contract:
+            skips.append(f"{c['ticker']}: no contract in DTE/strike band")
+            continue
+        q = at.latest_option_quote(contract["symbol"])
+        ask = (q or {}).get("ask")
+        if not ask:
+            skips.append(f"{c['ticker']}: no option quote")
+            continue
+        premium = ask * OPTION_MULTIPLIER
+        if premium > cap:
+            skips.append(f"{c['ticker']}: premium ${premium:.0f} > cap ${cap:.0f}")
+            continue
+        limit_price = round(ask * (1 + settings["entry_limit_buffer_pct"] / 100.0), 2)
+        cost = limit_price * OPTION_MULTIPLIER
+        if cost > opt_bp * BUYING_POWER_SLACK:
+            skips.append(f"{c['ticker']}: cost ${cost:.0f} > options BP ${opt_bp:.0f}")
+            continue
+        try:
+            o = at.submit_order(contract["symbol"], 1, "buy", "limit", "day",
+                                limit_price=limit_price)
+        except at.AlpacaError as exc:
+            skips.append(f"{c['ticker']}: order rejected: {exc}")
+            continue
+        trade = ai_store.new_trade(c["ticker"], {
+            "z_log": c["z_log"], "tier": tier, "touch_date": c["touch_date"],
+            "first_touch": c["first_touch"], "same_day_breadth": c["same_day_breadth"],
+            "price_at_signal": c["price"], "reversion_to_mean_pct": c["reversion_to_mean_pct"],
+        })
+        ai_store.update_trade(trade["id"], {
+            "status": "pending_entry",
+            "contract": {**contract, "type": "call"},
+            "entry": {"order_id": o.get("id"), "limit_price": limit_price,
+                      "submitted_at": ai_store.now_iso(), "reprice_attempts": 0},
+        })
+        opt_bp -= cost
+        slots -= 1
+        placed += 1
+        held_tickers.add(c["ticker"])
+        actions.append(
+            f"{c['ticker']} [{tier}]: BUY 1x {contract['symbol']} "
+            f"limit {limit_price} (premium ${premium:.0f})"
+        )
+    return placed
+
+
+# ---- entrypoint -----------------------------------------------------------
+
+def run_cron(manual: bool = False) -> dict:
+    rec: dict = {"phase": "manual" if manual else "cron", "actions": [],
+                 "skips": [], "errors": [], "ran": False}
+
+    if not at.is_configured():
+        rec["reason"] = "alpaca credentials not configured"
+        ai_store.log_run(rec)
+        return {"ok": False, **rec}
+
+    settings = ai_store.get_settings()
+
+    try:
+        clock = at.get_clock()
+        account = at.get_account()
+    except at.AlpacaError as exc:
+        rec["errors"].append(f"alpaca unreachable: {exc}")
+        ai_store.log_run(rec)
+        return {"ok": False, **rec}
+
+    is_open = bool(clock.get("is_open"))
+    rec["market_open"] = is_open
+    rec["ran"] = True
+
+    # Bookkeeping always runs so in-flight trades stay managed even if the
+    # kill-switch was turned off after entry.
+    trades = ai_store.list_trades()
+    dirty = False
+    for t in trades:
+        if t.get("status") in ("pending_entry", "open", "closing"):
+            dirty = True
+            try:
+                _reconcile(t, settings, is_open, rec["actions"])
+            except Exception as exc:
+                logger.exception("reconcile failed for %s", t.get("id"))
+                rec["errors"].append(f"{t.get('ticker')}: reconcile {exc!r}")
+    if dirty:
+        ai_store._save_trades(trades)
+
+    # Entry phase: once per trading day, market open, kill-switch on.
+    et_today = _et_date(clock)
+    state = ai_store.get_state()
+    if not settings.get("enabled"):
+        rec["skips"].append("kill-switch off - entries skipped")
+    elif not is_open:
+        rec["skips"].append("market closed - entries skipped")
+    elif state.get("last_entry_eval_day") == et_today:
+        rec["skips"].append(f"entries already evaluated for {et_today}")
+    else:
+        placed = _run_entries(settings, account, rec["actions"], rec["skips"])
+        rec["entries_placed"] = placed
+        ai_store.set_state({"last_entry_eval_day": et_today})
+
+    # Equity snapshot + realized cumulative.
+    realized_cum = round(sum(
+        (_f((t.get("pnl") or {}).get("realized_usd"), 0.0) or 0.0)
+        for t in ai_store.list_trades() if t.get("status") == "closed"
+    ), 2)
+    ai_store.append_equity(
+        _f(account.get("equity"), 0.0) or 0.0,
+        _f(account.get("cash"), 0.0) or 0.0,
+        realized_cum,
+    )
+    rec["equity"] = _f(account.get("equity"))
+
+    ai_store.log_run(rec)
+    return {"ok": True, **rec}
+
+
+def snapshot() -> dict:
+    """Full read-only state for the AI page. Degrades gracefully when
+    Alpaca creds are missing (account=None, no live marks)."""
+    settings = ai_store.get_settings()
+    trades = ai_store.list_trades()
+    account = None
+    marks: dict[str, dict] = {}
+    configured = at.is_configured()
+    if configured:
+        try:
+            account = at.get_account()
+        except at.AlpacaError:
+            account = None
+        try:
+            for p in at.list_option_positions():
+                marks[p.get("symbol")] = p
+        except at.AlpacaError:
+            pass
+
+    open_t, closed_t = [], []
+    for t in trades:
+        if t.get("status") == "closed" or t.get("status") == "canceled":
+            closed_t.append(t)
+        else:
+            tt = dict(t)
+            sym = (tt.get("contract") or {}).get("symbol")
+            if sym and sym in marks:
+                m = marks[sym]
+                tt["mark"] = {
+                    "current_price": _f(m.get("current_price")),
+                    "market_value": _f(m.get("market_value")),
+                    "unrealized_pl": _f(m.get("unrealized_pl")),
+                    "unrealized_plpc": _f(m.get("unrealized_plpc")),
+                }
+            ent = tt.get("entry") or {}
+            if ent.get("filled_at"):
+                tt["trading_days_held"] = _trading_days_since(ent["filled_at"])
+            open_t.append(tt)
+
+    closed_pnl = [t for t in closed_t if (t.get("pnl") or {}).get("realized_usd") is not None]
+    wins = [t for t in closed_pnl if t["pnl"]["realized_usd"] > 0]
+    losses = [t for t in closed_pnl if t["pnl"]["realized_usd"] <= 0]
+    total_real = round(sum(t["pnl"]["realized_usd"] for t in closed_pnl), 2)
+    stats = {
+        "closed_count": len(closed_pnl),
+        "win_rate": round(100.0 * len(wins) / len(closed_pnl), 1) if closed_pnl else None,
+        "avg_win": round(sum(t["pnl"]["realized_usd"] for t in wins) / len(wins), 2) if wins else None,
+        "avg_loss": round(sum(t["pnl"]["realized_usd"] for t in losses) / len(losses), 2) if losses else None,
+        "total_realized": total_real,
+    }
+
+    return {
+        "configured": configured,
+        "settings": settings,
+        "account": account,
+        "open_trades": list(reversed(open_t)),
+        "closed_trades": list(reversed(closed_t))[:100],
+        "stats": stats,
+        "equity": ai_store.equity_series(),
+        "run_log": ai_store.run_log(100),
+    }
+
+
+__all__ = ["run_cron", "snapshot"]
