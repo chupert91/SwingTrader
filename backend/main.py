@@ -264,6 +264,8 @@ class AISettingsPayload(BaseModel):
     dte_min: int | None = None
     dte_max: int | None = None
     entry_limit_buffer_pct: float | None = None
+    stoch_rsi_mode: str | None = None
+    stoch_oversold_max: float | None = None
 
 
 @app.get("/api/ai/state")

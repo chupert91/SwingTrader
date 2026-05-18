@@ -6,9 +6,15 @@ z in [-2.5, -2.0] sweet spot, S&P universe, liquidity-gated, ranked by
 same-day-breadth tier then freshness. Kept in-tree (not importing the
 research script) so the production path has no dependency on research/.
 
-Rationale lives in research/oversold_playbook.md and the user-trades-options
-memory; do not widen the band or add a trend filter — both were tested and
-make this specific OTM-2mo trade worse.
+Rationale lives in research/oversold_playbook.md. Tested-and-rejected (see
+the playbook "What to avoid" table): more-extreme z bands and the
+slope/trend-direction filter both make this specific OTM-2mo trade worse —
+do not re-add those.
+
+The optional Stoch RSI overlay (stoch_mode) is a *timing/momentum*
+refinement that was NOT part of that research. It is unproven, not
+contradicted-by-research, and ships off by default. Keep it opt-in until
+the AI-page closed-trade stats prove it earns its keep.
 """
 from __future__ import annotations
 
@@ -20,6 +26,7 @@ import numpy as np
 import pandas as pd
 
 from backend.data import fetch_bars_bulk
+from backend.indicators import stoch_rsi
 from backend.sp500_tickers import SP500_TICKERS
 
 WINDOW = 252
@@ -88,11 +95,23 @@ def tier_for(breadth: int) -> str:
     return "?"
 
 
-def scan_candidates() -> list[dict]:
+def scan_candidates(
+    *,
+    stoch_mode: str = "off",
+    stoch_oversold_max: float = 30.0,
+) -> list[dict]:
     """Ranked oversold-call candidates from the current S&P snapshot.
 
     WEAK tier is included in the output but the trader skips it (smallest
     size / skip per the playbook); ranking is tier-first then freshness.
+
+    Stoch RSI overlay (every candidate carries stoch_rsi_k / stoch_oversold
+    regardless of mode, for AI-page transparency):
+      - "off":     computed and attached, no effect on filter or rank.
+      - "prefer":  oversold names sort first *within their tier* (does not
+                   override the breadth tier, the strongest validated lever).
+      - "require":  names with %K > stoch_oversold_max (or unknown %K) are
+                   dropped entirely.
     """
     bars = fetch_bars_bulk(SP500_TICKERS, period="14mo")
     breadth: Counter = Counter()
@@ -118,6 +137,11 @@ def scan_candidates() -> list[dict]:
         adv_m = _avg_dollar_vol_m(df)
         if adv_m < MIN_AVG_DOLLAR_VOL_M:
             continue
+        k_ser, _ = stoch_rsi(df["close"])
+        k_last = float(k_ser.iloc[-1]) if len(k_ser) and not pd.isna(k_ser.iloc[-1]) else None
+        is_os = k_last is not None and k_last <= stoch_oversold_max
+        if stoch_mode == "require" and not is_os:
+            continue
         zone = _bars_in_zone(sd)
         n = len(sd)
         touch_idx = n - zone
@@ -138,6 +162,8 @@ def scan_candidates() -> list[dict]:
             "realized_vol_pct": round(_realized_vol_pct(closes), 1),
             "log_slope_ann_pct": round(slope_ann, 1),
             "avg_dollar_vol_m": round(adv_m, 1),
+            "stoch_rsi_k": round(k_last, 1) if k_last is not None else None,
+            "stoch_oversold": is_os,
         })
 
     for c in pending:
@@ -146,8 +172,12 @@ def scan_candidates() -> list[dict]:
         c["tier"] = tier_for(b)
         del c["_touch_date"]
 
+    # "prefer" inserts an oversold-first key directly under the tier rank so
+    # it reorders within a tier without overriding it. For "off"/"require"
+    # the term is constant across kept rows -> no effect on the ordering.
     pending.sort(key=lambda c: (
         _TIER_RANK.get(c["tier"], 9),
+        0 if (stoch_mode == "prefer" and c["stoch_oversold"]) else 1,
         0 if c["first_touch"] else 1,
         c["bars_in_zone"],
         -c["realized_vol_pct"],

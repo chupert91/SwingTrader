@@ -297,7 +297,10 @@ def _run_entries(settings: dict, account: dict, actions: list, skips: list) -> i
     cap = float(settings["premium_cap_usd"])
 
     try:
-        candidates = ai_strategy.scan_candidates()
+        candidates = ai_strategy.scan_candidates(
+            stoch_mode=str(settings.get("stoch_rsi_mode", "off")),
+            stoch_oversold_max=float(settings.get("stoch_oversold_max", 30.0)),
+        )
     except Exception as exc:
         logger.exception("scan failed")
         skips.append(f"scan error: {exc!r}")

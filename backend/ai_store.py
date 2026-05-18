@@ -42,6 +42,13 @@ DEFAULT_SETTINGS: dict = {
     "dte_min": 45,
     "dte_max": 60,
     "entry_limit_buffer_pct": 1.0,  # pay up to ask*(1+buffer/100)
+    # Optional Stoch RSI timing overlay. Untested vs. the validated edge
+    # (see ai_strategy docstring) so it ships OFF. mode:
+    #   "off"     - ignored
+    #   "prefer"  - oversold names rank first within their tier
+    #   "require" - drop names whose %K > stoch_oversold_max
+    "stoch_rsi_mode": "off",
+    "stoch_oversold_max": 30.0,  # %K <= this counts as oversold
 }
 
 

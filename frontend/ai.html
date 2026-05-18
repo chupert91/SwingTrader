@@ -41,7 +41,7 @@
 
     <section class="bt-panel">
       <h2 class="bt-panel-title">Strategy Settings</h2>
-      <p class="bt-hint">Loss control is the per-trade premium cap, max-concurrent, and the disaster stop — not a tight price stop. The signal band and "no trend filter" are fixed by the validated research; only the knobs below are tunable.</p>
+      <p class="bt-hint">Loss control is the per-trade premium cap, max-concurrent, and the disaster stop — not a tight price stop. The signal band and the no-slope/trend-direction-filter rule are fixed by the validated research. The Stoch RSI mode is an opt-in timing overlay that was NOT in that research — unproven, off by default; A/B it via the closed-trade stats below before trusting it.</p>
       <div class="ai-settings-grid" id="ai-settings">
         <label>Premium cap / contract ($)<input type="number" step="50" data-set="premium_cap_usd" /></label>
         <label>Max concurrent positions<input type="number" step="1" min="1" data-set="max_concurrent" /></label>
@@ -53,6 +53,12 @@
         <label>DTE min<input type="number" step="1" data-set="dte_min" /></label>
         <label>DTE max<input type="number" step="1" data-set="dte_max" /></label>
         <label>Entry limit buffer (%)<input type="number" step="0.25" data-set="entry_limit_buffer_pct" /></label>
+        <label>Stoch RSI mode<select data-set="stoch_rsi_mode">
+          <option value="off">Off (validated edge only)</option>
+          <option value="prefer">Prefer oversold</option>
+          <option value="require">Require oversold</option>
+        </select></label>
+        <label>Stoch RSI oversold (%K &le;)<input type="number" step="1" min="1" max="99" data-set="stoch_oversold_max" /></label>
       </div>
       <div class="ai-settings-actions">
         <button id="ai-save-settings" type="button" class="ai-btn">Save settings</button>

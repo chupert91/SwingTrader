@@ -246,6 +246,7 @@ el("ai-save-settings").addEventListener("click", async () => {
   for (const inp of document.querySelectorAll("#ai-settings [data-set]")) {
     const k = inp.dataset.set;
     if (inp.type === "checkbox") patch[k] = inp.checked;
+    else if (inp.tagName === "SELECT") patch[k] = inp.value;
     else if (inp.value !== "") patch[k] = Number(inp.value);
   }
   const status = el("ai-save-status");
