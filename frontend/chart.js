@@ -95,7 +95,7 @@ priceChart.priceScale("vol").applyOptions({
 const VP_BAR_COLOR = "rgba(176, 182, 196, 0.30)";
 const VP_VA_COLOR = "rgba(176, 182, 196, 0.10)";
 const VP_POC_COLOR = "rgba(214, 220, 232, 0.85)";
-const VP_MAX_WIDTH_FRAC = 1.0; // longest bar spans this fraction of plot width
+const VP_MAX_WIDTH_FRAC = 0.32; // longest bar spans this fraction of plot width
 
 class VolumeProfileRenderer {
   constructor(data, series, chart, visible) {
@@ -116,12 +116,14 @@ class VolumeProfileRenderer {
       const maxBar = plotWidth * VP_MAX_WIDTH_FRAC;
       const right = plotWidth;
 
+      // Value-area "ghost box" and POC reference line span the full chart;
+      // only the histogram bars are sized by VP_MAX_WIDTH_FRAC.
       const vaTop = series.priceToCoordinate(d.va_high);
       const vaBot = series.priceToCoordinate(d.va_low);
       if (vaTop != null && vaBot != null) {
         ctx.fillStyle = VP_VA_COLOR;
-        ctx.fillRect(right - maxBar, Math.min(vaTop, vaBot),
-                     maxBar, Math.abs(vaBot - vaTop));
+        ctx.fillRect(0, Math.min(vaTop, vaBot),
+                     plotWidth, Math.abs(vaBot - vaTop));
       }
 
       ctx.fillStyle = VP_BAR_COLOR;
@@ -142,8 +144,8 @@ class VolumeProfileRenderer {
         ctx.lineWidth = 1;
         ctx.setLineDash([4, 3]);
         ctx.beginPath();
-        ctx.moveTo(right - maxBar, yPoc + 0.5);
-        ctx.lineTo(right, yPoc + 0.5);
+        ctx.moveTo(0, yPoc + 0.5);
+        ctx.lineTo(plotWidth, yPoc + 0.5);
         ctx.stroke();
         ctx.setLineDash([]);
       }
