@@ -2438,13 +2438,15 @@ refreshAlerts();
 setInterval(refreshAlerts, 60 * 1000);
 
 // Deep-link support: /?ticker=XYZ (used by the Scanner page to hand off a
-// ticker to the chart). Falls back to AAPL.
+// ticker to the chart). Otherwise boot the top of the watchlist; AAPL is
+// only the last resort if the watchlist is somehow empty.
 function _bootTicker() {
   try {
     const q = new URLSearchParams(window.location.search).get("ticker");
     if (q) return q.toUpperCase().trim();
   } catch {}
-  return "AAPL";
+  const wl = loadWatchlist();
+  return (wl && wl[0]) ? wl[0] : "AAPL";
 }
 
 // Watchlist boots async: fetch server first (so phone edits show up here),
