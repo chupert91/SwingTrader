@@ -85,6 +85,109 @@ priceChart.priceScale("vol").applyOptions({
   scaleMargins: { top: 0.85, bottom: 0 },
 });
 
+// --- Volume profile (fixed 252-day lookback) -----------------------------
+// Lightweight Charts has no native horizontal-histogram series, so the
+// profile is drawn as a series primitive on the price pane: light-gray bars
+// anchored to the right edge, a dashed POC line, and a faint 70% value-area
+// band. priceToCoordinate is read inside draw() so the profile tracks
+// vertical pan/zoom every frame. Data is static per ticker (server-computed
+// over the cropped 252-bar window), so there is no recompute on pan/zoom.
+const VP_BAR_COLOR = "rgba(176, 182, 196, 0.30)";
+const VP_VA_COLOR = "rgba(176, 182, 196, 0.10)";
+const VP_POC_COLOR = "rgba(214, 220, 232, 0.85)";
+const VP_MAX_WIDTH_FRAC = 1.0; // longest bar spans this fraction of plot width
+
+class VolumeProfileRenderer {
+  constructor(data, series, chart, visible) {
+    this._data = data;
+    this._series = series;
+    this._chart = chart;
+    this._visible = visible;
+  }
+  draw(target) {
+    const d = this._data;
+    if (!this._visible || !d || !d.bins || !d.bins.length) return;
+    const series = this._series;
+    const plotWidth = this._chart.timeScale().width();
+    const maxVol = d.max_volume || 0;
+    if (maxVol <= 0 || plotWidth <= 0) return;
+    target.useMediaCoordinateSpace((scope) => {
+      const ctx = scope.context;
+      const maxBar = plotWidth * VP_MAX_WIDTH_FRAC;
+      const right = plotWidth;
+
+      const vaTop = series.priceToCoordinate(d.va_high);
+      const vaBot = series.priceToCoordinate(d.va_low);
+      if (vaTop != null && vaBot != null) {
+        ctx.fillStyle = VP_VA_COLOR;
+        ctx.fillRect(right - maxBar, Math.min(vaTop, vaBot),
+                     maxBar, Math.abs(vaBot - vaTop));
+      }
+
+      ctx.fillStyle = VP_BAR_COLOR;
+      for (const b of d.bins) {
+        if (b.volume <= 0) continue;
+        const yTop = series.priceToCoordinate(b.high);
+        const yBot = series.priceToCoordinate(b.low);
+        if (yTop == null || yBot == null) continue;
+        const top = Math.min(yTop, yBot);
+        const h = Math.max(Math.abs(yBot - yTop) - 1, 1);
+        const w = (b.volume / maxVol) * maxBar;
+        ctx.fillRect(right - w, top, w, h);
+      }
+
+      const yPoc = series.priceToCoordinate(d.poc);
+      if (yPoc != null) {
+        ctx.strokeStyle = VP_POC_COLOR;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 3]);
+        ctx.beginPath();
+        ctx.moveTo(right - maxBar, yPoc + 0.5);
+        ctx.lineTo(right, yPoc + 0.5);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    });
+  }
+}
+
+class VolumeProfilePaneView {
+  constructor(primitive) { this._p = primitive; }
+  zOrder() { return "bottom"; }
+  renderer() {
+    return new VolumeProfileRenderer(
+      this._p._data, this._p._series, this._p._chart, this._p._visible);
+  }
+}
+
+class VolumeProfilePrimitive {
+  constructor() {
+    this._data = null;
+    this._visible = false;
+    this._series = null;
+    this._chart = null;
+    this._requestUpdate = null;
+    this._views = [new VolumeProfilePaneView(this)];
+  }
+  attached(param) {
+    this._series = param.series;
+    this._chart = param.chart;
+    this._requestUpdate = param.requestUpdate;
+  }
+  detached() {
+    this._series = null;
+    this._chart = null;
+    this._requestUpdate = null;
+  }
+  paneViews() { return this._views; }
+  updateAllViews() {}
+  setData(d) { this._data = d; if (this._requestUpdate) this._requestUpdate(); }
+  setVisible(v) { this._visible = v; if (this._requestUpdate) this._requestUpdate(); }
+}
+
+const volumeProfile = new VolumeProfilePrimitive();
+candleSeries.attachPrimitive(volumeProfile);
+
 function addLine(chart, color, width, style) {
   return chart.addLineSeries({
     color,
@@ -248,6 +351,7 @@ function renderChart(data) {
   candleSeries.setData(data.candles);
   volumeTotalSeries.setData(data.volume_total);
   volumeBuySeries.setData(data.volume_buy);
+  volumeProfile.setData(data.volume_profile || null);
   for (const [key, series] of Object.entries(overlaySeries)) {
     series.setData(data.overlays[key] || []);
   }
@@ -918,7 +1022,7 @@ const DISPLAY_KEY = "swingtrader.display";
 const DISPLAY_DEFAULTS = {
   ichimoku: { tenkan: false, kijun: false, cloud: true, chikou: false },
   regression: { line: true, sd1: true, sd2: true, sd3: true },
-  volume: { bars: true },
+  volume: { bars: true, profile: false },
 };
 
 function loadDisplay() {
@@ -965,6 +1069,7 @@ function applyDisplay() {
   // Volume
   volumeTotalSeries.applyOptions({ visible: display.volume.bars });
   volumeBuySeries.applyOptions({ visible: display.volume.bars });
+  volumeProfile.setVisible(display.volume.profile);
   updateLegend();
 }
 

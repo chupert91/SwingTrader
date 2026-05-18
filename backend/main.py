@@ -20,6 +20,7 @@ from backend.alert_engine import AlertRule
 from backend.channels import REGRESSION_WINDOW, SIGMA_LEVELS, compute_channels
 from backend.data import fetch_bars, fetch_ticker_name
 from backend.volume import split_volume
+from backend.volume_profile import compute_profile
 import backend.indicators_lib  # noqa: F401 — side-effect: registers indicators
 
 load_dotenv()
@@ -435,6 +436,7 @@ def _serialize(df: pd.DataFrame, ticker: str, ichi: ichimoku.IchimokuComponents)
         "candles": candles,
         "volume_total": volume_total,
         "volume_buy": volume_buy,
+        "volume_profile": compute_profile(df),
         "overlays": overlays,
         "ichimoku": ichi_payload,
         "summary": summary,
