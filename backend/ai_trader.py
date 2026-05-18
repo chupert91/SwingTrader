@@ -293,6 +293,18 @@ def _run_entries(settings: dict, account: dict, actions: list, skips: list) -> i
         skips.append(f"no slots ({len(held_tickers)}/{max_conc} used)")
         return 0
 
+    # Per-day entry cap. Entries run once per ET trading day (run_cron guards
+    # on last_entry_eval_day), so clamping this single pass is a per-day cap.
+    # Stops a capitulation-day cluster of correlated candidates from filling
+    # every free slot at once; the book builds over multiple days instead.
+    max_per_day = int(settings["max_entries_per_day"])
+    if slots > max_per_day:
+        skips.append(f"per-day entry cap {max_per_day} (< {slots} free slots)")
+        slots = max_per_day
+    if slots <= 0:
+        skips.append(f"per-day entry cap is {max_per_day} - no entries")
+        return 0
+
     opt_bp = _f(account.get("options_buying_power"), 0.0) or 0.0
     cap = float(settings["premium_cap_usd"])
 

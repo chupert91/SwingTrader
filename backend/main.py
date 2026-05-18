@@ -256,6 +256,7 @@ class AISettingsPayload(BaseModel):
     enabled: bool | None = None
     premium_cap_usd: float | None = None
     max_concurrent: int | None = None
+    max_entries_per_day: int | None = None
     disaster_stop_enabled: bool | None = None
     disaster_stop_pct: float | None = None
     take_profit_pct: float | None = None

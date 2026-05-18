@@ -34,6 +34,7 @@ DEFAULT_SETTINGS: dict = {
     "enabled": False,            # global kill switch
     "premium_cap_usd": 2000.0,   # max premium per single contract
     "max_concurrent": 2,         # max simultaneous open option positions
+    "max_entries_per_day": 2,    # cap new entries opened in a single day
     "disaster_stop_enabled": True,
     "disaster_stop_pct": 50.0,   # native stop at entry*(1 - pct/100)
     "take_profit_pct": 30.0,     # resting sell limit at entry*(1 + pct/100)
