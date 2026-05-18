@@ -110,26 +110,18 @@ def _arm_exits(trade: dict, settings: dict, actions: list) -> None:
             actions.append(f"{trade['ticker']}: TP arm failed: {exc}")
 
     if not settings.get("disaster_stop_enabled"):
+        trade["disaster_stop"] = None
         return
-    ds = trade.get("disaster_stop") or {}
-    need_ds = True
-    if ds.get("order_id"):
-        try:
-            o = at.get_order(ds["order_id"])
-            if o.get("status") in ("new", "accepted", "pending_new", "held"):
-                need_ds = False
-            elif o.get("status") == "filled":
-                need_ds = False
-        except at.AlpacaError:
-            pass
-    if need_ds:
-        ds_price = round(fill * (1 - settings["disaster_stop_pct"] / 100.0), 2)
-        try:
-            o = at.submit_order(symbol, qty, "sell", "stop", "day", stop_price=ds_price)
-            trade["disaster_stop"] = {"order_id": o.get("id"), "stop_price": ds_price, "status": "working"}
-            actions.append(f"{trade['ticker']}: armed disaster stop {ds_price}")
-        except at.AlpacaError as exc:
-            actions.append(f"{trade['ticker']}: disaster-stop arm failed: {exc}")
+    # Software stop, not a native order: Alpaca rejects a resting stop-sell
+    # on a long option as an "uncovered option" (account not approved for
+    # naked short calls), even though it is a closing order. So we record
+    # the threshold here and enforce it from the mark in _reconcile.
+    ds_price = round(fill * (1 - settings["disaster_stop_pct"] / 100.0), 2)
+    trade["disaster_stop"] = {
+        "mode": "software",
+        "stop_price": ds_price,
+        "pct": settings["disaster_stop_pct"],
+    }
 
 
 def _finalize_close(trade: dict, exit_price: float, reason: str, actions: list) -> None:
@@ -197,7 +189,8 @@ def _reconcile(trade: dict, settings: dict, clock_open: bool, actions: list) -> 
 
     if st in ("open", "closing"):
         symbol = (trade.get("contract") or {}).get("symbol", "")
-        # Take-profit hit?
+
+        # Take-profit hit? (resting limit — Alpaca executes this on its own.)
         tp = trade.get("tp") or {}
         if tp.get("order_id"):
             try:
@@ -208,18 +201,8 @@ def _reconcile(trade: dict, settings: dict, clock_open: bool, actions: list) -> 
                     return
             except at.AlpacaError:
                 pass
-        # Disaster stop hit?
-        ds = trade.get("disaster_stop") or {}
-        if ds.get("order_id"):
-            try:
-                o = at.get_order(ds["order_id"])
-                if o.get("status") == "filled":
-                    _finalize_close(trade, _f(o.get("filled_avg_price")) or 0.0,
-                                    "disaster_stop", actions)
-                    return
-            except at.AlpacaError:
-                pass
-        # Closing order (time-stop market close) confirmation.
+
+        # Confirm a submitted closing order (time stop or software disaster).
         if st == "closing":
             ex = trade.get("exit") or {}
             if ex.get("order_id"):
@@ -233,14 +216,56 @@ def _reconcile(trade: dict, settings: dict, clock_open: bool, actions: list) -> 
                     pass
             return
 
-        # Still open: time stop?
+        # --- still open: fetch this position's mark once ------------------
         entry = trade.get("entry") or {}
-        held = _trading_days_since(entry.get("filled_at", ""))
-        if held >= settings["time_stop_days"] and clock_open:
-            for k in ("tp", "disaster_stop"):
-                oid = (trade.get(k) or {}).get("order_id")
+        pos = None
+        positions_ok = True
+        try:
+            for p in at.list_option_positions():
+                if p.get("symbol") == symbol:
+                    pos = p
+                    break
+        except at.AlpacaError:
+            positions_ok = False
+
+        # Position vanished (manual/external close).
+        if positions_ok and symbol and pos is None:
+            trade["status"] = "closed"
+            trade["exit"] = {"reason": "external"}
+            trade["pnl"] = trade.get("pnl") or {"realized_usd": None, "realized_pct": None}
+            actions.append(f"{trade['ticker']}: position gone (external close)")
+            return
+
+        # Software disaster stop: native stop-sell on a long option is
+        # rejected by Alpaca as "uncovered", so enforce it from the mark.
+        if pos is not None and clock_open and settings.get("disaster_stop_enabled"):
+            plpc = _f(pos.get("unrealized_plpc"))
+            if plpc is None:
+                cur = _f(pos.get("current_price"))
+                ef = _f(entry.get("fill_price"))
+                plpc = (cur / ef - 1.0) if (cur and ef) else None
+            thr = settings["disaster_stop_pct"] / 100.0
+            if plpc is not None and plpc <= -thr:
+                oid = (trade.get("tp") or {}).get("order_id")
                 if oid:
                     at.cancel_order(oid)
+                try:
+                    o = at.close_position(symbol)
+                    trade["status"] = "closing"
+                    trade["exit"] = {"reason": "disaster_stop", "order_id": o.get("id"),
+                                     "submitted_at": ai_store.now_iso()}
+                    actions.append(
+                        f"{trade['ticker']}: disaster stop ({plpc * 100:.0f}%) -> closing")
+                except at.AlpacaError as exc:
+                    actions.append(f"{trade['ticker']}: disaster close failed: {exc}")
+                return
+
+        # Time stop?
+        held = _trading_days_since(entry.get("filled_at", ""))
+        if held >= settings["time_stop_days"] and clock_open:
+            oid = (trade.get("tp") or {}).get("order_id")
+            if oid:
+                at.cancel_order(oid)
             try:
                 o = at.close_position(symbol)
                 trade["status"] = "closing"
@@ -251,19 +276,9 @@ def _reconcile(trade: dict, settings: dict, clock_open: bool, actions: list) -> 
                 actions.append(f"{trade['ticker']}: time-stop close failed: {exc}")
             return
 
-        # Position vanished without our exit (manual/external close).
-        try:
-            positions = {p.get("symbol") for p in at.list_option_positions()}
-            if symbol and symbol not in positions and st == "open":
-                trade["status"] = "closed"
-                trade["exit"] = {"reason": "external"}
-                trade["pnl"] = trade.get("pnl") or {"realized_usd": None, "realized_pct": None}
-                actions.append(f"{trade['ticker']}: position gone (external close)")
-        except at.AlpacaError:
-            pass
-        else:
-            if trade.get("status") == "open":
-                _arm_exits(trade, settings, actions)
+        # Still open and healthy: keep the TP limit armed.
+        if trade.get("status") == "open":
+            _arm_exits(trade, settings, actions)
 
 
 # ---- entry ----------------------------------------------------------------
