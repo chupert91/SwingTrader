@@ -6,6 +6,10 @@ import pandas as pd
 
 REGRESSION_WINDOW = 252
 SIGMA_LEVELS = (1, 2, 3)
+# "Gold zone": the strip between the 2σ and 2.5σ bands (both sides). Kept
+# separate from SIGMA_LEVELS so alert/threshold logic over the integer
+# levels stays unchanged.
+GOLD_ZONE = (2.0, 2.5)
 
 
 def compute_channels(df: pd.DataFrame, window: int = REGRESSION_WINDOW) -> pd.DataFrame:
@@ -17,7 +21,8 @@ def compute_channels(df: pd.DataFrame, window: int = REGRESSION_WINDOW) -> pd.Da
 
     Returns the input df with added columns:
         regression_line, upper_1sd, lower_1sd, upper_2sd, lower_2sd,
-        upper_3sd, lower_3sd, sd_position, slope, r_squared
+        upper_3sd, lower_3sd, upper_2_5sd, lower_2_5sd,
+        sd_position, slope, r_squared
     """
     out = df.copy()
     n = len(out)
@@ -48,6 +53,8 @@ def compute_channels(df: pd.DataFrame, window: int = REGRESSION_WINDOW) -> pd.Da
     for k in SIGMA_LEVELS:
         out[f"upper_{k}sd"] = full_fit + k * sigma
         out[f"lower_{k}sd"] = full_fit - k * sigma
+    out["upper_2_5sd"] = full_fit + 2.5 * sigma
+    out["lower_2_5sd"] = full_fit - 2.5 * sigma
 
     out["sd_position"] = (closes - full_fit) / sigma if sigma > 0 else 0.0
     out["slope"] = slope
@@ -59,5 +66,6 @@ def _channel_columns() -> list[str]:
     cols = ["regression_line"]
     for k in SIGMA_LEVELS:
         cols += [f"upper_{k}sd", f"lower_{k}sd"]
+    cols += ["upper_2_5sd", "lower_2_5sd"]
     cols += ["sd_position", "slope", "r_squared"]
     return cols

@@ -190,6 +190,92 @@ class VolumeProfilePrimitive {
 const volumeProfile = new VolumeProfilePrimitive();
 candleSeries.attachPrimitive(volumeProfile);
 
+// --- Gold zones: filled strip between the 2σ and 2.5σ bands -------------
+// Drawn for both the overbought (upper) and oversold (lower) sides. The σ
+// bands are straight lines (regression line + k·sigma projected over every
+// bar), so each strip is an exact quadrilateral between the first and last
+// points of its inner (2σ) and outer (2.5σ) edges. timeToCoordinate returns
+// a valid x for any time in the candle dataset even when scrolled off the
+// viewport, so the fill tracks pan/zoom every frame.
+const GOLD_ZONE_FILL = "rgba(212, 175, 55, 0.16)";
+
+class GoldZoneRenderer {
+  constructor(data, series, chart, visible) {
+    this._data = data;
+    this._series = series;
+    this._chart = chart;
+    this._visible = visible;
+  }
+  draw(target) {
+    const d = this._data;
+    if (!this._visible || !d) return;
+    const series = this._series;
+    const ts = this._chart.timeScale();
+    target.useMediaCoordinateSpace((scope) => {
+      const ctx = scope.context;
+      ctx.fillStyle = GOLD_ZONE_FILL;
+      this._fillBand(ctx, ts, series, d.upper_inner, d.upper_outer);
+      this._fillBand(ctx, ts, series, d.lower_inner, d.lower_outer);
+    });
+  }
+  _fillBand(ctx, ts, series, inner, outer) {
+    if (!inner?.length || !outer?.length) return;
+    const i0 = inner[0], i1 = inner[inner.length - 1];
+    const o0 = outer[0], o1 = outer[outer.length - 1];
+    const xL = ts.timeToCoordinate(i0.time);
+    const xR = ts.timeToCoordinate(i1.time);
+    const yIL = series.priceToCoordinate(i0.value);
+    const yIR = series.priceToCoordinate(i1.value);
+    const yOL = series.priceToCoordinate(o0.value);
+    const yOR = series.priceToCoordinate(o1.value);
+    if ([xL, xR, yIL, yIR, yOL, yOR].some((v) => v == null)) return;
+    ctx.beginPath();
+    ctx.moveTo(xL, yIL);
+    ctx.lineTo(xR, yIR);
+    ctx.lineTo(xR, yOR);
+    ctx.lineTo(xL, yOL);
+    ctx.closePath();
+    ctx.fill();
+  }
+}
+
+class GoldZonePaneView {
+  constructor(primitive) { this._p = primitive; }
+  zOrder() { return "bottom"; }
+  renderer() {
+    return new GoldZoneRenderer(
+      this._p._data, this._p._series, this._p._chart, this._p._visible);
+  }
+}
+
+class GoldZonePrimitive {
+  constructor() {
+    this._data = null;
+    this._visible = true;
+    this._series = null;
+    this._chart = null;
+    this._requestUpdate = null;
+    this._views = [new GoldZonePaneView(this)];
+  }
+  attached(param) {
+    this._series = param.series;
+    this._chart = param.chart;
+    this._requestUpdate = param.requestUpdate;
+  }
+  detached() {
+    this._series = null;
+    this._chart = null;
+    this._requestUpdate = null;
+  }
+  paneViews() { return this._views; }
+  updateAllViews() {}
+  setData(d) { this._data = d; if (this._requestUpdate) this._requestUpdate(); }
+  setVisible(v) { this._visible = v; if (this._requestUpdate) this._requestUpdate(); }
+}
+
+const goldZone = new GoldZonePrimitive();
+candleSeries.attachPrimitive(goldZone);
+
 function addLine(chart, color, width, style) {
   return chart.addLineSeries({
     color,
@@ -357,6 +443,13 @@ function renderChart(data) {
   for (const [key, series] of Object.entries(overlaySeries)) {
     series.setData(data.overlays[key] || []);
   }
+  const ov = data.overlays || {};
+  goldZone.setData({
+    upper_inner: ov.upper_2sd || [],
+    upper_outer: ov.upper_2_5sd || [],
+    lower_inner: ov.lower_2sd || [],
+    lower_outer: ov.lower_2_5sd || [],
+  });
   if (data.ichimoku) {
     for (const [key, series] of Object.entries(ichimokuSeries)) {
       series.setData(data.ichimoku[key] || []);
@@ -1088,6 +1181,7 @@ function applyDisplay() {
   overlaySeries.lower_1sd.applyOptions({ visible: display.regression.sd1 });
   overlaySeries.upper_2sd.applyOptions({ visible: display.regression.sd2 });
   overlaySeries.lower_2sd.applyOptions({ visible: display.regression.sd2 });
+  goldZone.setVisible(display.regression.sd2);
   overlaySeries.upper_3sd.applyOptions({ visible: display.regression.sd3 });
   overlaySeries.lower_3sd.applyOptions({ visible: display.regression.sd3 });
   // Volume

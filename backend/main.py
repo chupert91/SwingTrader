@@ -470,6 +470,8 @@ def _serialize(df: pd.DataFrame, ticker: str, ichi: ichimoku.IchimokuComponents)
         for k in SIGMA_LEVELS:
             overlays[f"upper_{k}sd"] = _line(times, df[f"upper_{k}sd"])
             overlays[f"lower_{k}sd"] = _line(times, df[f"lower_{k}sd"])
+        overlays["upper_2_5sd"] = _line(times, df["upper_2_5sd"])
+        overlays["lower_2_5sd"] = _line(times, df["lower_2_5sd"])
 
     ichi_payload = _ichimoku_payload(times, ichi, shift=ICHIMOKU_SHIFT)
 
