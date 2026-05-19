@@ -13,3 +13,4 @@ from . import log_regression  # noqa: F401
 from . import reverse_cutlers_rsi  # noqa: F401
 from . import vumanchu_cipher_b  # noqa: F401
 from . import normalized_gaussian_macd_ha  # noqa: F401
+from . import consec_bars  # noqa: F401
