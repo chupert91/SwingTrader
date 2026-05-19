@@ -8,10 +8,12 @@ One entrypoint, run_cron(), called by the hourly Vercel cron and the manual
   detect fills, re-arm the resting +30% take-profit and the disaster stop,
   enforce the ~10-trading-day time stop, finalize P&L on close.
 
-  entry (once per trading day, only when market is open AND enabled): scan
-  the validated oversold-call signal, walk the tier-ranked list, and place
-  marketable buy-limit orders subject to the per-trade premium cap, the
-  max-concurrent cap, and Alpaca options buying power.
+  entry (re-evaluated every run when market is open AND enabled, up to
+  max_entries_per_day new positions per ET day via a per-day counter so a
+  slot freed intraday back-fills the same day): scan the validated
+  oversold-call signal, walk the tier-ranked list, and place marketable
+  buy-limit orders subject to the per-trade premium cap, the max-concurrent
+  cap, and Alpaca options buying power.
 
 Order/exit design (see the long design discussion + memory): entries are
 marketable limits (never market — option spreads); take-profit is a resting
@@ -283,7 +285,8 @@ def _reconcile(trade: dict, settings: dict, clock_open: bool, actions: list) -> 
 
 # ---- entry ----------------------------------------------------------------
 
-def _run_entries(settings: dict, account: dict, actions: list, skips: list) -> int:
+def _run_entries(settings: dict, account: dict, max_new: int,
+                 actions: list, skips: list) -> int:
     placed = 0
     max_conc = int(settings["max_concurrent"])
     held_tickers = {t["ticker"] for t in ai_store.list_trades()
@@ -293,16 +296,15 @@ def _run_entries(settings: dict, account: dict, actions: list, skips: list) -> i
         skips.append(f"no slots ({len(held_tickers)}/{max_conc} used)")
         return 0
 
-    # Per-day entry cap. Entries run once per ET trading day (run_cron guards
-    # on last_entry_eval_day), so clamping this single pass is a per-day cap.
-    # Stops a capitulation-day cluster of correlated candidates from filling
-    # every free slot at once; the book builds over multiple days instead.
-    max_per_day = int(settings["max_entries_per_day"])
-    if slots > max_per_day:
-        skips.append(f"per-day entry cap {max_per_day} (< {slots} free slots)")
-        slots = max_per_day
+    # Clamp this pass to the remaining per-day budget (run_cron tracks a
+    # per-day counter and passes what is left). Stops a capitulation-day
+    # cluster of correlated candidates from filling every free slot at once;
+    # the book builds over multiple days instead.
+    if slots > max_new:
+        skips.append(f"per-day budget {max_new} left (< {slots} free slots)")
+        slots = max_new
     if slots <= 0:
-        skips.append(f"per-day entry cap is {max_per_day} - no entries")
+        skips.append("per-day entry budget exhausted")
         return 0
 
     opt_bp = _f(account.get("options_buying_power"), 0.0) or 0.0
@@ -417,19 +419,28 @@ def run_cron(manual: bool = False) -> dict:
     if dirty:
         ai_store._save_trades(trades)
 
-    # Entry phase: once per trading day, market open, kill-switch on.
+    # Entry phase: market open + kill-switch on. Re-evaluated every run so a
+    # slot freed intraday (take-profit/stop close) or a raised max_concurrent
+    # is picked up the same day; a per-day COUNTER (not a calendar stamp)
+    # preserves the capitulation-clustering throttle.
     et_today = _et_date(clock)
     state = ai_store.get_state()
+    placed_today = (int(state.get("entries_today", 0))
+                    if state.get("entry_day") == et_today else 0)
+    max_per_day = int(settings["max_entries_per_day"])
     if not settings.get("enabled"):
         rec["skips"].append("kill-switch off - entries skipped")
     elif not is_open:
         rec["skips"].append("market closed - entries skipped")
-    elif state.get("last_entry_eval_day") == et_today:
-        rec["skips"].append(f"entries already evaluated for {et_today}")
+    elif placed_today >= max_per_day:
+        rec["skips"].append(
+            f"per-day entry cap reached ({placed_today}/{max_per_day} for {et_today})")
     else:
-        placed = _run_entries(settings, account, rec["actions"], rec["skips"])
+        placed = _run_entries(settings, account, max_per_day - placed_today,
+                              rec["actions"], rec["skips"])
         rec["entries_placed"] = placed
-        ai_store.set_state({"last_entry_eval_day": et_today})
+        ai_store.set_state({"entry_day": et_today,
+                            "entries_today": placed_today + placed})
 
     # Equity snapshot + realized cumulative.
     realized_cum = round(sum(
