@@ -80,6 +80,28 @@ def _side_of(trade: dict) -> str:
     return (trade.get("contract") or {}).get("type", "call")
 
 
+def _trading_days_until(iso_date: str) -> int | None:
+    """Weekday count from today to the expiration date (holidays ignored --
+    same approximation as _trading_days_since). Returns None if the date
+    can't be parsed. Used by the close-before-expiry exit to avoid the
+    ITM auto-exercise / cash-settlement P&L-attribution loss."""
+    try:
+        y, m, d = (int(x) for x in iso_date.split("-"))
+        target = date(y, m, d)
+    except Exception:
+        return None
+    today = datetime.now(timezone.utc).date()
+    if target <= today:
+        return 0
+    days = 0
+    d = today
+    while d < target:
+        d += timedelta(days=1)
+        if d.weekday() < 5:
+            days += 1
+    return days
+
+
 def _trading_days_since(iso_ts: str) -> int:
     """Weekday count from a fill timestamp to now (holidays ignored — the
     10-day stop is a soft heuristic; off-by-one over two weeks is fine)."""
@@ -359,6 +381,23 @@ def _reconcile(trade: dict, settings: dict, clock_open: bool, actions: list,
                     hit = cur_z >= tgt
                     label = f"z={cur_z:+.2f}>=tgt {tgt:+.2f}"
                 if hit and _submit_close("sigma_target", label):
+                    return
+
+        # Close-before-expiry: fires when remaining DTE drops to <= the
+        # configured threshold. Ranked AFTER sigma_target (winners get the
+        # cleaner exit reason if both hit the same day) and BEFORE time_stop
+        # (assignment risk > "I've waited long enough"). Eliminates the ITM
+        # auto-exercise problem (Alpaca assigns 100 shares = $10k+ on our
+        # ~$5k account) AND fixes the "external" P&L attribution gap when
+        # the option vanishes from the positions list at expiration.
+        cbe_key = "puts_close_before_expiry_days" if side == "put" else "close_before_expiry_days"
+        cbe = settings.get(cbe_key)
+        contract = trade.get("contract") or {}
+        exp_iso = contract.get("expiration")
+        if cbe is not None and exp_iso and clock_open:
+            td_to_exp = _trading_days_until(exp_iso)
+            if td_to_exp is not None and td_to_exp <= int(cbe):
+                if _submit_close("close_before_expiry", f"{td_to_exp}td to exp"):
                     return
 
         # Time stop (hard, regardless of P&L). Puts use the puts-side setting.

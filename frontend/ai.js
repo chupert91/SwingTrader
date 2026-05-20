@@ -52,7 +52,9 @@ function sourceBadge(src) {
 function reasonBadge(r) {
   const map = {
     take_profit: ["Take profit", "t-prime"],
+    sigma_target: ["Sigma target", "t-prime"],
     time_stop: ["Time stop", "t-ok"],
+    close_before_expiry: ["Pre-expiry", "t-ok"],
     disaster_stop: ["Disaster stop", "t-panic"],
     entry_unfilled: ["Unfilled", "t-weak"],
     external: ["External", "t-weak"],
@@ -283,10 +285,10 @@ el("ai-save-settings").addEventListener("click", async () => {
   const NULLABLE = new Set([
     "take_profit_pct", "sigma_target",
     "disaster_stop_pct", "disaster_stop_usd",
-    "time_stop_days",
+    "time_stop_days", "close_before_expiry_days",
     "puts_take_profit_pct", "puts_sigma_target",
     "puts_disaster_stop_pct", "puts_disaster_stop_usd",
-    "puts_time_stop_days",
+    "puts_time_stop_days", "puts_close_before_expiry_days",
   ]);
   const patch = {};
   // One pass over BOTH sleeves' grids + the puts kill-switch toggle so the

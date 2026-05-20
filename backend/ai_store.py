@@ -54,6 +54,13 @@ DEFAULT_SETTINGS: dict = {
     "take_profit_pct": None,     # resting sell limit (None = off; sigma-target exits instead)
     "sigma_target": 0.0,         # close when 252d-log z >= this (None = off)
     "time_stop_days": 45,        # close if still open after N trading days
+    # Close before expiry: avoids ITM auto-exercise (Alpaca assigns 100
+    # shares per contract on a ~$5k account = margin call territory) AND
+    # avoids losing P&L attribution when the option simply vanishes from
+    # the positions list at expiration (the bot would otherwise mark it
+    # "external" with realized_usd=None). Fires when remaining DTE drops
+    # to <= this many trading days. None disables (back-compat).
+    "close_before_expiry_days": 5,
     "otm_pct": 5.0,              # target strike ~ price*(1+otm/100)
     "dte_min": 80,               # 90 DTE was the real-trade median (94d)
     "dte_max": 120,
@@ -79,6 +86,7 @@ DEFAULT_SETTINGS: dict = {
     "puts_take_profit_pct": None,
     "puts_sigma_target": 0.0,    # close when z <= -puts_sigma_target (i.e. z<=0)
     "puts_time_stop_days": 45,
+    "puts_close_before_expiry_days": 5,  # same semantic as calls (per-leg knob)
     "puts_otm_pct": 5.0,
     "puts_dte_min": 30,          # tuning sweep best was 30-45 DTE
     "puts_dte_max": 60,
