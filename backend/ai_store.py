@@ -65,6 +65,24 @@ DEFAULT_SETTINGS: dict = {
     #   "require" - drop names whose %K > stoch_oversold_max
     "stoch_rsi_mode": "off",
     "stoch_oversold_max": 30.0,  # %K <= this counts as oversold
+    # ---- PUTS SLEEVE (separate kill switch, separate capital frame) ----
+    # Defaults track research/out/bounce_confirm_puts_tune.txt "tuned-PF":
+    # PF 2.53, CAGR +4.5%, MaxDD -17.1%, n=32 / 5y on the volatile universe.
+    # Ships DISABLED so user can review the first few fires before enabling.
+    "puts_enabled": False,
+    "puts_premium_cap_usd": 2000.0,
+    "puts_max_concurrent": 2,
+    "puts_max_entries_per_day": 1,
+    "puts_disaster_stop_enabled": True,
+    "puts_disaster_stop_pct": None,
+    "puts_disaster_stop_usd": 200.0,
+    "puts_take_profit_pct": None,
+    "puts_sigma_target": 0.0,    # close when z <= -puts_sigma_target (i.e. z<=0)
+    "puts_time_stop_days": 45,
+    "puts_otm_pct": 5.0,
+    "puts_dte_min": 30,          # tuning sweep best was 30-45 DTE
+    "puts_dte_max": 60,
+    "puts_entry_limit_buffer_pct": 1.0,
 }
 
 

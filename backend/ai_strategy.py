@@ -75,6 +75,24 @@ BOUNCE_STOCH_TURN_MIN = 1.0
 # the bot will trade it. Sort order PRIME > OK > PANIC > BOUNCE > WEAK > ?
 _TIER_RANK = {"PRIME": 0, "OK": 1, "PANIC": 2, "BOUNCE": 3, "WEAK": 4, "?": 5}
 
+# ---- PUTS SLEEVE ----------------------------------------------------------
+# Mirror of the call bounce_confirm pattern for the overbought side, with
+# one tuned difference: ob_floor=85 instead of the symmetric 70.
+# Calibrated by research/bounce_confirm_puts_tune.py on the volatile
+# universe (R6-mirror exits, 5y). The tuned-PF config returned
+#   PF 2.53, CAGR +4.5%, Sharpe 0.42, MaxDD -17.1%, n=32 trades
+# which is the FIRST positive puts edge in the project -- breaks the 0.91
+# PF ceiling that the prior 9 puts sweeps couldn't crack (see
+# [[put_leg_falsified]]). Counter-correlated to the calls sleeve: fires
+# in overbought regimes when the calls bot has nothing to do.
+PUTS_BAND_LO = 2.0                  # F1m: z in [+2.0, +2.5]
+PUTS_BAND_HI = 2.5
+PUTS_BOUNCE_RECLAIM_SIGMA = 0.10    # F2m pullback >= 0.10 sigma from 20b z-max
+PUTS_BOUNCE_OB_FLOOR = 85.0         # F4m: %K >= this (tuned; sym would be 70)
+PUTS_BOUNCE_STOCH_TURN_MIN = 1.0    # F4m: %K must roll over >= this from 20b max
+PUTS_BOUNCE_SUPPORT_PCT = 0.02      # F5m: +/- 2% of recent 20b high
+PUTS_BOUNCE_SUPPORT_HITS_MIN = 5
+
 
 def _log_channel_sd(closes: np.ndarray, window: int = WINDOW):
     n = len(closes)
@@ -418,4 +436,199 @@ def current_z_for_tickers(tickers: list[str]) -> dict[str, float]:
     return out
 
 
-__all__ = ["scan_candidates", "pick_contract", "tier_for", "current_z_for_tickers"]
+# ---- PUTS SLEEVE ----------------------------------------------------------
+
+def _bounce_features_put(sd: np.ndarray, highs: np.ndarray,
+                         k_arr: np.ndarray) -> dict:
+    """Compute the 5 mirror features for the puts sleeve at the LAST bar.
+    F1m (z in band) is verified by the caller via selection in
+    scan_put_candidates. Returns booleans + the underlying numbers."""
+    out = {
+        "f1_in_band": True,                # caller verified
+        "f2_pullback_sigma": False,
+        "f3_lower_high_252d": False,
+        "f4_stoch_rolling_over": False,
+        "f5_resistance_hits": 0,
+        "f5_resistance_confluence": False,
+        "recent_z_max_20b": None,
+        "pullback_from_max": None,
+        "recent_high_20b": None,
+        "prior_high_252b": None,
+        "stoch_k_max_20b": None,
+        "bounce_confirm_put": False,
+    }
+    n = len(sd)
+    LB = BOUNCE_LOOKBACK
+    if n < WINDOW + LB + 2:
+        return out
+
+    z_today = float(sd[-1])
+    recent_z_window = sd[-LB:]
+    if np.all(np.isnan(recent_z_window)):
+        return out
+    recent_z_max = float(np.nanmax(recent_z_window))
+    out["recent_z_max_20b"] = round(recent_z_max, 2)
+    pullback = recent_z_max - z_today
+    out["pullback_from_max"] = round(pullback, 2)
+    out["f2_pullback_sigma"] = pullback >= PUTS_BOUNCE_RECLAIM_SIGMA
+
+    recent_hi = float(np.nanmax(highs[-LB:]))
+    prior_highs = highs[-WINDOW:-LB]
+    if len(prior_highs) > 0:
+        prior_hi = float(np.nanmax(prior_highs))
+        out["recent_high_20b"] = round(recent_hi, 2)
+        out["prior_high_252b"] = round(prior_hi, 2)
+        out["f3_lower_high_252d"] = bool(recent_hi < prior_hi)
+        band_lo = recent_hi * (1.0 - PUTS_BOUNCE_SUPPORT_PCT)
+        band_hi = recent_hi * (1.0 + PUTS_BOUNCE_SUPPORT_PCT)
+        hits = int(((prior_highs >= band_lo) & (prior_highs <= band_hi)).sum())
+        out["f5_resistance_hits"] = hits
+        out["f5_resistance_confluence"] = hits >= PUTS_BOUNCE_SUPPORT_HITS_MIN
+
+    if k_arr is not None and len(k_arr) >= LB:
+        k_today = k_arr[-1]
+        k_window = k_arr[-LB:]
+        if np.isfinite(k_today) and not np.all(np.isnan(k_window)):
+            k_max = float(np.nanmax(k_window))
+            out["stoch_k_max_20b"] = round(k_max, 1)
+            out["f4_stoch_rolling_over"] = bool(
+                k_today >= PUTS_BOUNCE_OB_FLOOR
+                and k_today < k_max - PUTS_BOUNCE_STOCH_TURN_MIN
+            )
+
+    out["bounce_confirm_put"] = bool(
+        out["f1_in_band"]
+        and out["f2_pullback_sigma"]
+        and out["f3_lower_high_252d"]
+        and out["f4_stoch_rolling_over"]
+        and out["f5_resistance_confluence"]
+    )
+    return out
+
+
+def scan_put_candidates() -> list[dict]:
+    """Ranked PUTS-side bounce_confirm-mirror candidates.
+
+    Only fires the tuned 5-feature pattern (no broad-market breadth gate --
+    the prior 9 puts sweeps falsified that path). A candidate must have:
+      F1m  z in [+2.0, +2.5]
+      F2m  z pullback >= 0.10 sigma from the 20b z-max
+      F3m  LOWER high (252d frame)
+      F4m  Stoch RSI %K >= 85 AND rolling down >= 1.0 from 20b max
+      F5m  >= 5 prior bars with high within +/- 2% of the recent 20b high
+    AND ADV >= MIN_AVG_DOLLAR_VOL_M.
+
+    All passing names share the single tier 'BOUNCE_PUT' and are ranked
+    PRIMARILY by support_hits descending (stronger structural resistance =
+    higher conviction), then by Stoch RSI %K descending (more overbought =
+    further to revert).
+    """
+    bars = fetch_bars_bulk(_scan_universe(), period="14mo")
+    out: list[dict] = []
+    for tk, df in bars.items():
+        if df is None or df.empty or len(df) < WINDOW + 2:
+            continue
+        closes = df["close"].to_numpy(dtype=float)
+        highs = df["high"].to_numpy(dtype=float)
+        sd, slope_ann, center_px = _log_channel_sd(closes)
+        if np.isnan(sd[-1]):
+            continue
+        z = float(sd[-1])
+        if not (PUTS_BAND_LO <= z <= PUTS_BAND_HI):
+            continue
+        adv_m = _avg_dollar_vol_m(df)
+        if adv_m < MIN_AVG_DOLLAR_VOL_M:
+            continue
+        k_ser, _ = stoch_rsi(df["close"])
+        k_arr = k_ser.to_numpy(dtype=float) if len(k_ser) else np.array([])
+        k_last = float(k_ser.iloc[-1]) if len(k_ser) and not pd.isna(k_ser.iloc[-1]) else None
+        feat = _bounce_features_put(sd, highs, k_arr)
+        if not feat["bounce_confirm_put"]:
+            continue
+        price = float(closes[-1])
+        # Mean-reversion target: distance from price back to the channel
+        # center (negative for puts because price is above the line).
+        reversion_pct = (center_px / price - 1.0) * 100.0
+        out.append({
+            "ticker": tk,
+            "price": round(price, 2),
+            "z_log": round(z, 2),
+            "source": "bounce_put",
+            "tier": "BOUNCE_PUT",
+            "reversion_to_mean_pct": round(reversion_pct, 1),
+            "realized_vol_pct": round(_realized_vol_pct(closes), 1),
+            "log_slope_ann_pct": round(slope_ann, 1),
+            "avg_dollar_vol_m": round(adv_m, 1),
+            "stoch_rsi_k": round(k_last, 1) if k_last is not None else None,
+            "bounce": feat,
+        })
+
+    out.sort(key=lambda c: (
+        -c["bounce"]["f5_resistance_hits"],          # stronger resistance first
+        -(c["stoch_rsi_k"] if c["stoch_rsi_k"] else 0),  # more overbought first
+    ))
+    return out
+
+
+def pick_put_contract(
+    underlying: str,
+    price: float,
+    *,
+    otm_pct: float,
+    dte_min: int,
+    dte_max: int,
+    today: date | None = None,
+) -> dict | None:
+    """Choose ~otm_pct OTM put expiring within [dte_min, dte_max] DTE.
+
+    Mirror of pick_contract: strike = price * (1 - otm_pct/100); fetch
+    option_type='put'; widen the strike window; pick the earliest exp in
+    band and the strike closest to the OTM target.
+    """
+    from backend import alpaca_trading as at
+
+    today = today or date.today()
+    exp_lo = (today + timedelta(days=dte_min)).isoformat()
+    exp_hi = (today + timedelta(days=dte_max)).isoformat()
+    target_strike = price * (1.0 - otm_pct / 100.0)
+    # Widen so we still find SOMETHING; we re-pick closest to the target.
+    strike_lo = target_strike * 0.85
+    strike_hi = target_strike * 1.05
+
+    contracts = at.list_option_contracts(
+        underlying,
+        expiration_gte=exp_lo,
+        expiration_lte=exp_hi,
+        strike_gte=strike_lo,
+        strike_lte=strike_hi,
+        option_type="put",
+    )
+    if not contracts:
+        return None
+
+    def dte_of(c: dict) -> int:
+        try:
+            y, m, d = (int(x) for x in c["expiration_date"].split("-"))
+            return (date(y, m, d) - today).days
+        except Exception:
+            return 10_000
+
+    valid = [c for c in contracts if c.get("strike_price") and c.get("expiration_date")]
+    if not valid:
+        return None
+    earliest_exp = min(c["expiration_date"] for c in valid)
+    same_exp = [c for c in valid if c["expiration_date"] == earliest_exp]
+    best = min(same_exp, key=lambda c: abs(float(c["strike_price"]) - target_strike))
+    return {
+        "symbol": best["symbol"],
+        "strike": float(best["strike_price"]),
+        "expiration": best["expiration_date"],
+        "dte": dte_of(best),
+    }
+
+
+__all__ = [
+    "scan_candidates", "pick_contract",
+    "scan_put_candidates", "pick_put_contract",
+    "tier_for", "current_z_for_tickers",
+]

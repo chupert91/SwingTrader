@@ -62,7 +62,15 @@ function reasonBadge(r) {
 }
 function contractLabel(c) {
   if (!c) return "—";
-  return `${esc(c.strike)}C ${esc(c.expiration)}`;
+  // Pre-puts-sleeve contracts have no type field; default to call.
+  const cp = (c.type === "put") ? "P" : "C";
+  return `${esc(c.strike)}${cp} ${esc(c.expiration)}`;
+}
+// Visual side tag. PUT trades render with a yellow/orange chip so the
+// scan log + open-trades table show at a glance which sleeve fired.
+function sideBadge(side) {
+  if (side === "put") return `<span class="ai-badge t-put" title="Puts sleeve (overbought bounce_confirm mirror)">PUT</span>`;
+  return "";
 }
 
 // ---- chart ---------------------------------------------------------------
@@ -167,7 +175,7 @@ function renderState(d) {
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${esc(t.ticker)}</td>
-      <td>${tierBadge(t.signal?.tier)} ${sourceBadge(t.signal?.source)}</td>
+      <td>${tierBadge(t.signal?.tier)} ${sourceBadge(t.signal?.source)} ${sideBadge(t.signal?.side)}</td>
       <td>${contractLabel(t.contract)}</td>
       <td><span class="ai-badge t-weak">${esc(t.status)}</span></td>
       <td>${entry.fill_price != null ? "$" + entry.fill_price : (entry.limit_price != null ? "lmt $" + entry.limit_price : "—")}</td>
@@ -196,7 +204,7 @@ function renderState(d) {
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${esc(t.ticker)}</td>
-      <td>${tierBadge(t.signal?.tier)} ${sourceBadge(t.signal?.source)}</td>
+      <td>${tierBadge(t.signal?.tier)} ${sourceBadge(t.signal?.source)} ${sideBadge(t.signal?.side)}</td>
       <td>${contractLabel(t.contract)}</td>
       <td>${entry.fill_price != null ? "$" + entry.fill_price : "—"}</td>
       <td>${exit.fill_price != null ? "$" + exit.fill_price : "—"}</td>

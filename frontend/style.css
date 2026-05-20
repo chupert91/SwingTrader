@@ -2091,6 +2091,7 @@ body.page-backtest { overflow: auto; }
 .ai-badge.t-ok { background: rgba(88, 166, 255, 0.16); color: var(--accent); }
 .ai-badge.t-panic { background: rgba(231, 76, 60, 0.16); color: var(--sd3); }
 .ai-badge.t-bounce { background: rgba(187, 134, 252, 0.18); color: #bb86fc; border: 1px solid rgba(187, 134, 252, 0.40); }
+.ai-badge.t-put { background: rgba(255, 152, 0, 0.18); color: #ff9800; border: 1px solid rgba(255, 152, 0, 0.45); }
 .ai-badge.t-weak { background: rgba(139, 148, 158, 0.18); color: var(--muted); }
 .ai-badge.src-deep { background: rgba(240, 173, 78, 0.20); color: #f0ad4e; border: 1px solid rgba(240, 173, 78, 0.45); }
 .ai-badge.src-primary { background: rgba(139, 148, 158, 0.10); color: var(--muted); }

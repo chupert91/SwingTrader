@@ -73,6 +73,13 @@ def _et_date(clock: dict) -> str:
     return dt.date().isoformat()
 
 
+def _side_of(trade: dict) -> str:
+    """'put' or 'call'. Pre-puts-sleeve trades have no type field; treat as
+    calls so back-compat is preserved (the calls bot was the only writer
+    until the puts sleeve shipped)."""
+    return (trade.get("contract") or {}).get("type", "call")
+
+
 def _trading_days_since(iso_ts: str) -> int:
     """Weekday count from a fill timestamp to now (holidays ignored — the
     10-day stop is a soft heuristic; off-by-one over two weeks is fine)."""
@@ -107,7 +114,15 @@ def _arm_exits(trade: dict, settings: dict, actions: list) -> None:
     if not fill or not symbol:
         return
 
-    tp_pct = _f(settings.get("take_profit_pct"))
+    # Per-leg settings (puts_* / call defaults) -- so the two sleeves can be
+    # tuned independently without one stepping on the other's TP / disaster.
+    side = _side_of(trade)
+    tp_key  = "puts_take_profit_pct"      if side == "put" else "take_profit_pct"
+    en_key  = "puts_disaster_stop_enabled" if side == "put" else "disaster_stop_enabled"
+    pct_key = "puts_disaster_stop_pct"    if side == "put" else "disaster_stop_pct"
+    usd_key = "puts_disaster_stop_usd"    if side == "put" else "disaster_stop_usd"
+
+    tp_pct = _f(settings.get(tp_key))
     if tp_pct is None:
         # No TP configured. Cancel any lingering TP order from a prior config.
         oid = (trade.get("tp") or {}).get("order_id")
@@ -138,7 +153,7 @@ def _arm_exits(trade: dict, settings: dict, actions: list) -> None:
             except at.AlpacaError as exc:
                 actions.append(f"{trade['ticker']}: TP arm failed: {exc}")
 
-    if not settings.get("disaster_stop_enabled"):
+    if not settings.get(en_key):
         trade["disaster_stop"] = None
         return
     # Software stop, not a native order: Alpaca rejects a resting stop-sell
@@ -148,12 +163,15 @@ def _arm_exits(trade: dict, settings: dict, actions: list) -> None:
     # Either disaster_stop_pct OR disaster_stop_usd (or both) can be set —
     # whichever fires first triggers the close. Defaults are pct=None and
     # usd=200 ("cap each loss at ~$200" — the user's real rule shape).
-    ds_pct = _f(settings.get("disaster_stop_pct"))
-    ds_usd = _f(settings.get("disaster_stop_usd"))
+    ds_pct = _f(settings.get(pct_key))
+    ds_usd = _f(settings.get(usd_key))
     trade["disaster_stop"] = {
         "mode": "software",
         "pct": ds_pct,
         "usd": ds_usd,
+        # NB: for puts the "stop_price_pct" hint is also a fall-from-fill
+        # threshold -- option price still falls when the trade goes against
+        # us regardless of side -- so the same formula applies.
         "stop_price_pct": round(fill * (1 - ds_pct / 100.0), 2) if ds_pct else None,
     }
 
@@ -295,10 +313,14 @@ def _reconcile(trade: dict, settings: dict, clock_open: bool, actions: list,
         # the UI form sends 0.0 when a field is empty, and a 0% stop would
         # close on the first negative tick (which closed CCJ at -$25 / -3.4%
         # on 2026-05-20 before this guard existed). Use any truthy value
-        # to arm; 0 means "no stop on this axis".
-        if pos is not None and clock_open and settings.get("disaster_stop_enabled"):
-            ds_pct = _f(settings.get("disaster_stop_pct"))
-            ds_usd = _f(settings.get("disaster_stop_usd"))
+        # to arm; 0 means "no stop on this axis". Puts use the puts_* keys.
+        side_for_stop = _side_of(trade)
+        en_key = "puts_disaster_stop_enabled" if side_for_stop == "put" else "disaster_stop_enabled"
+        pct_key = "puts_disaster_stop_pct" if side_for_stop == "put" else "disaster_stop_pct"
+        usd_key = "puts_disaster_stop_usd" if side_for_stop == "put" else "disaster_stop_usd"
+        if pos is not None and clock_open and settings.get(en_key):
+            ds_pct = _f(settings.get(pct_key))
+            ds_usd = _f(settings.get(usd_key))
             plpc = _f(pos.get("unrealized_plpc"))
             plus = _f(pos.get("unrealized_pl"))   # absolute $ unrealized
             if plpc is None:
@@ -316,20 +338,33 @@ def _reconcile(trade: dict, settings: dict, clock_open: bool, actions: list,
                     return
 
         # Sigma-target exit: close when the underlying's 252d-LOG z reverts
-        # back to (or above) the configured target. The volatile-universe
-        # sweep's strongest config uses sigma_target=0.0 — exit when the
-        # capitulation is fully un-wound. Skip silently if we don't have a
-        # current z (data error / illiquid ticker) — time-stop will catch.
+        # back through the configured target. Direction depends on the
+        # leg's side:
+        #   CALL: close when z >= +sigma_target (oversold un-wound; default 0)
+        #   PUT : close when z <= -sigma_target (overbought un-wound; default 0)
+        # Calls use the standard sigma_target/time_stop_days settings; puts
+        # use puts_sigma_target/puts_time_stop_days so the two legs can be
+        # tuned independently. Skip silently if we don't have a current z
+        # (data error / illiquid ticker) — time-stop will catch eventually.
+        side = _side_of(trade)
         if clock_open:
-            tgt = _f(settings.get("sigma_target"))
+            tgt_key = "puts_sigma_target" if side == "put" else "sigma_target"
+            tgt = _f(settings.get(tgt_key))
             cur_z = z_by_ticker.get(trade.get("ticker", "").upper())
-            if tgt is not None and cur_z is not None and cur_z >= tgt:
-                if _submit_close("sigma_target", f"z={cur_z:+.2f}>=tgt {tgt:+.2f}"):
+            if tgt is not None and cur_z is not None:
+                if side == "put":
+                    hit = cur_z <= -tgt
+                    label = f"z={cur_z:+.2f}<=-tgt {-tgt:+.2f}"
+                else:
+                    hit = cur_z >= tgt
+                    label = f"z={cur_z:+.2f}>=tgt {tgt:+.2f}"
+                if hit and _submit_close("sigma_target", label):
                     return
 
-        # Time stop (hard, regardless of P&L).
+        # Time stop (hard, regardless of P&L). Puts use the puts-side setting.
         held = _trading_days_since(entry.get("filled_at", ""))
-        ts_days = settings.get("time_stop_days")
+        ts_key = "puts_time_stop_days" if side == "put" else "time_stop_days"
+        ts_days = settings.get(ts_key)
         if ts_days is not None and held >= int(ts_days) and clock_open:
             if _submit_close("time_stop", f"{held}d"):
                 return
@@ -436,6 +471,104 @@ def _run_entries(settings: dict, account: dict, max_new: int,
     return placed
 
 
+def _run_put_entries(settings: dict, account: dict, max_new: int,
+                     actions: list, skips: list) -> int:
+    """Puts-sleeve entry phase. Same shape as _run_entries but with the
+    puts settings, the puts scanner, and the puts contract picker.
+    Counts only its own held tickers (calls and puts share Alpaca BP but
+    not concurrency slots), and tags every new trade with side='put' so
+    _reconcile flips the sigma-target direction."""
+    placed = 0
+    max_conc = int(settings["puts_max_concurrent"])
+    open_puts = [t for t in ai_store.list_trades()
+                 if t.get("status") in ("pending_entry", "open", "closing")
+                 and _side_of(t) == "put"]
+    held_tickers = {t["ticker"] for t in open_puts}
+    slots = max_conc - len(held_tickers)
+    if slots <= 0:
+        skips.append(f"puts: no slots ({len(held_tickers)}/{max_conc} used)")
+        return 0
+    if slots > max_new:
+        skips.append(f"puts: per-day budget {max_new} left (< {slots} free slots)")
+        slots = max_new
+    if slots <= 0:
+        skips.append("puts: per-day entry budget exhausted")
+        return 0
+
+    opt_bp = _f(account.get("options_buying_power"), 0.0) or 0.0
+    cap = float(settings["puts_premium_cap_usd"])
+    buf = float(settings["puts_entry_limit_buffer_pct"])
+
+    try:
+        candidates = ai_strategy.scan_put_candidates()
+    except Exception as exc:
+        logger.exception("puts scan failed")
+        skips.append(f"puts scan error: {exc!r}")
+        return 0
+
+    if not candidates:
+        skips.append("puts: no candidates pass all 5 features")
+        return 0
+
+    for c in candidates:
+        if slots <= 0:
+            break
+        if c["ticker"] in held_tickers:
+            continue
+        contract = ai_strategy.pick_put_contract(
+            c["ticker"], c["price"],
+            otm_pct=settings["puts_otm_pct"],
+            dte_min=int(settings["puts_dte_min"]),
+            dte_max=int(settings["puts_dte_max"]),
+        )
+        if not contract:
+            skips.append(f"puts {c['ticker']}: no contract in DTE/strike band")
+            continue
+        q = at.latest_option_quote(contract["symbol"])
+        ask = (q or {}).get("ask")
+        if not ask:
+            skips.append(f"puts {c['ticker']}: no option quote")
+            continue
+        premium = ask * OPTION_MULTIPLIER
+        if premium > cap:
+            skips.append(f"puts {c['ticker']}: premium ${premium:.0f} > cap ${cap:.0f}")
+            continue
+        limit_price = round(ask * (1 + buf / 100.0), 2)
+        cost = limit_price * OPTION_MULTIPLIER
+        if cost > opt_bp * BUYING_POWER_SLACK:
+            skips.append(f"puts {c['ticker']}: cost ${cost:.0f} > options BP ${opt_bp:.0f}")
+            continue
+        try:
+            o = at.submit_order(contract["symbol"], 1, "buy", "limit", "day",
+                                limit_price=limit_price)
+        except at.AlpacaError as exc:
+            skips.append(f"puts {c['ticker']}: order rejected: {exc}")
+            continue
+        trade = ai_store.new_trade(c["ticker"], {
+            "z_log": c["z_log"], "tier": c["tier"],
+            "price_at_signal": c["price"],
+            "reversion_to_mean_pct": c["reversion_to_mean_pct"],
+            "source": c.get("source", "bounce_put"),
+            "bounce": c.get("bounce"),
+            "side": "put",
+        })
+        ai_store.update_trade(trade["id"], {
+            "status": "pending_entry",
+            "contract": {**contract, "type": "put"},
+            "entry": {"order_id": o.get("id"), "limit_price": limit_price,
+                      "submitted_at": ai_store.now_iso(), "reprice_attempts": 0},
+        })
+        opt_bp -= cost
+        slots -= 1
+        placed += 1
+        held_tickers.add(c["ticker"])
+        actions.append(
+            f"PUT {c['ticker']} [{c['tier']}]: BUY 1x {contract['symbol']} "
+            f"limit {limit_price} (premium ${premium:.0f})"
+        )
+    return placed
+
+
 # ---- entrypoint -----------------------------------------------------------
 
 def run_cron(manual: bool = False) -> dict:
@@ -464,14 +597,18 @@ def run_cron(manual: bool = False) -> dict:
     # Bookkeeping always runs so in-flight trades stay managed even if the
     # kill-switch was turned off after entry. We batch-fetch the underlying
     # z for every open trade once per tick (rather than per-trade) so the
-    # sigma-target exit check is cheap.
+    # sigma-target exit check is cheap. Both legs share this fetch.
     trades = ai_store.list_trades()
     open_tickers = sorted({(t.get("ticker") or "").upper()
                            for t in trades
                            if t.get("status") in ("pending_entry", "open", "closing")
                            and t.get("ticker")})
     z_by_ticker: dict[str, float] = {}
-    if open_tickers and settings.get("sigma_target") is not None:
+    # Fetch if EITHER leg's sigma-target is configured -- both reuse the
+    # same z dict, just with different threshold semantics in _reconcile.
+    need_z = (settings.get("sigma_target") is not None
+              or settings.get("puts_sigma_target") is not None)
+    if open_tickers and need_z:
         try:
             z_by_ticker = ai_strategy.current_z_for_tickers(open_tickers)
         except Exception as exc:
@@ -494,25 +631,51 @@ def run_cron(manual: bool = False) -> dict:
     # Entry phase: market open + kill-switch on. Re-evaluated every run so a
     # slot freed intraday (take-profit/stop close) or a raised max_concurrent
     # is picked up the same day; a per-day COUNTER (not a calendar stamp)
-    # preserves the capitulation-clustering throttle.
+    # preserves the capitulation-clustering throttle. Each leg has its own
+    # counter (entries_today / puts_entries_today) so they can't steal each
+    # other's daily budget.
     et_today = _et_date(clock)
     state = ai_store.get_state()
     placed_today = (int(state.get("entries_today", 0))
                     if state.get("entry_day") == et_today else 0)
+    puts_placed_today = (int(state.get("puts_entries_today", 0))
+                         if state.get("entry_day") == et_today else 0)
     max_per_day = int(settings["max_entries_per_day"])
+    puts_max_per_day = int(settings["puts_max_entries_per_day"])
+
+    # CALL leg
     if not settings.get("enabled"):
-        rec["skips"].append("kill-switch off - entries skipped")
+        rec["skips"].append("kill-switch off - call entries skipped")
     elif not is_open:
-        rec["skips"].append("market closed - entries skipped")
+        rec["skips"].append("market closed - call entries skipped")
     elif placed_today >= max_per_day:
         rec["skips"].append(
-            f"per-day entry cap reached ({placed_today}/{max_per_day} for {et_today})")
+            f"call per-day entry cap reached ({placed_today}/{max_per_day} for {et_today})")
     else:
         placed = _run_entries(settings, account, max_per_day - placed_today,
                               rec["actions"], rec["skips"])
         rec["entries_placed"] = placed
-        ai_store.set_state({"entry_day": et_today,
-                            "entries_today": placed_today + placed})
+        placed_today += placed
+
+    # PUT leg (separate kill switch -- starts disabled by default)
+    if not settings.get("puts_enabled"):
+        rec["skips"].append("puts kill-switch off - put entries skipped")
+    elif not is_open:
+        rec["skips"].append("market closed - put entries skipped")
+    elif puts_placed_today >= puts_max_per_day:
+        rec["skips"].append(
+            f"puts per-day entry cap reached "
+            f"({puts_placed_today}/{puts_max_per_day} for {et_today})")
+    else:
+        placed = _run_put_entries(settings, account,
+                                  puts_max_per_day - puts_placed_today,
+                                  rec["actions"], rec["skips"])
+        rec["puts_entries_placed"] = placed
+        puts_placed_today += placed
+
+    ai_store.set_state({"entry_day": et_today,
+                        "entries_today": placed_today,
+                        "puts_entries_today": puts_placed_today})
 
     # Equity snapshot + realized cumulative.
     realized_cum = round(sum(
