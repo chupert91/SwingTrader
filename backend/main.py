@@ -263,6 +263,7 @@ class AISettingsPayload(BaseModel):
     take_profit_pct: float | None = None
     sigma_target: float | None = None
     time_stop_days: int | None = None
+    close_before_expiry_days: int | None = None
     otm_pct: float | None = None
     dte_min: int | None = None
     dte_max: int | None = None
@@ -282,6 +283,7 @@ class AISettingsPayload(BaseModel):
     puts_take_profit_pct: float | None = None
     puts_sigma_target: float | None = None
     puts_time_stop_days: int | None = None
+    puts_close_before_expiry_days: int | None = None
     puts_otm_pct: float | None = None
     puts_dte_min: int | None = None
     puts_dte_max: int | None = None

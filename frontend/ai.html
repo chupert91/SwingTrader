@@ -49,6 +49,7 @@
         <label>Take-profit (%) <span class="bt-hint">blank = none</span><input type="number" step="1" data-set="take_profit_pct" /></label>
         <label>Sigma-target exit (z &ge;) <span class="bt-hint">blank = none</span><input type="number" step="0.25" data-set="sigma_target" /></label>
         <label>Time stop (trading days)<input type="number" step="1" data-set="time_stop_days" /></label>
+        <label>Close before expiry (trading days &le;) <span class="bt-hint">avoids ITM auto-exercise; blank = none</span><input type="number" step="1" data-set="close_before_expiry_days" /></label>
         <label>Disaster stop enabled<input type="checkbox" data-set="disaster_stop_enabled" /></label>
         <label>Disaster stop (% loss) <span class="bt-hint">blank = none</span><input type="number" step="5" data-set="disaster_stop_pct" /></label>
         <label>Disaster stop ($ cap) <span class="bt-hint">blank = none</span><input type="number" step="25" data-set="disaster_stop_usd" /></label>
@@ -89,6 +90,7 @@
         <label>Take-profit (%) <span class="bt-hint">blank = none</span><input type="number" step="1" data-set="puts_take_profit_pct" /></label>
         <label>Sigma-target exit (z &le; -tgt) <span class="bt-hint">blank = none; 0 = exit when overbought un-wound</span><input type="number" step="0.25" data-set="puts_sigma_target" /></label>
         <label>Time stop (trading days)<input type="number" step="1" data-set="puts_time_stop_days" /></label>
+        <label>Close before expiry (trading days &le;) <span class="bt-hint">avoids ITM auto-assignment; blank = none</span><input type="number" step="1" data-set="puts_close_before_expiry_days" /></label>
         <label>Disaster stop enabled<input type="checkbox" data-set="puts_disaster_stop_enabled" /></label>
         <label>Disaster stop (% loss) <span class="bt-hint">blank = none</span><input type="number" step="5" data-set="puts_disaster_stop_pct" /></label>
         <label>Disaster stop ($ cap) <span class="bt-hint">blank = none</span><input type="number" step="25" data-set="puts_disaster_stop_usd" /></label>
