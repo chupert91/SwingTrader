@@ -291,6 +291,11 @@ def _reconcile(trade: dict, settings: dict, clock_open: bool, actions: list,
                 return False
 
         # Disaster: % of premium OR $-cap (whichever triggers first).
+        # Both ds_pct and ds_usd are treated as OFF when 0 / None / blank --
+        # the UI form sends 0.0 when a field is empty, and a 0% stop would
+        # close on the first negative tick (which closed CCJ at -$25 / -3.4%
+        # on 2026-05-20 before this guard existed). Use any truthy value
+        # to arm; 0 means "no stop on this axis".
         if pos is not None and clock_open and settings.get("disaster_stop_enabled"):
             ds_pct = _f(settings.get("disaster_stop_pct"))
             ds_usd = _f(settings.get("disaster_stop_usd"))
@@ -300,9 +305,9 @@ def _reconcile(trade: dict, settings: dict, clock_open: bool, actions: list,
                 cur = _f(pos.get("current_price"))
                 ef = _f(entry.get("fill_price"))
                 plpc = (cur / ef - 1.0) if (cur and ef) else None
-            hit_pct = (ds_pct is not None and plpc is not None
+            hit_pct = (bool(ds_pct) and plpc is not None
                        and plpc <= -ds_pct / 100.0)
-            hit_usd = (ds_usd is not None and plus is not None
+            hit_usd = (bool(ds_usd) and plus is not None
                        and plus <= -ds_usd)
             if hit_pct or hit_usd:
                 detail = (f"{plpc * 100:.0f}%" if hit_pct

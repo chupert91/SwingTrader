@@ -131,7 +131,18 @@ def fetch_bars_bulk(tickers: list[str], period: str = "14mo") -> dict[str, pd.Da
 
 
 def _shape_ohlcv(raw: pd.DataFrame) -> pd.DataFrame:
-    """Re-shape a yfinance OHLCV slice into our standard column layout."""
+    """Re-shape a yfinance OHLCV slice into our standard column layout.
+
+    Handles both flat-column frames (typical multi-ticker yf.download after
+    raw[tk] selection) and MultiIndex column frames -- yfinance returns the
+    latter for a SINGLE ticker passed via yf.download(group_by='ticker'),
+    with columns like ('CCJ', 'Close'). Without this flatten, the rename
+    map didn't match the tuple keys and 'close' was missing, surfacing as
+    `KeyError(['close'])` in ai_strategy.current_z_for_tickers' z-fetch.
+    """
+    if isinstance(raw.columns, pd.MultiIndex):
+        raw = raw.copy()
+        raw.columns = raw.columns.get_level_values(-1)
     df = raw.reset_index().rename(
         columns={
             "Date": "timestamp",
