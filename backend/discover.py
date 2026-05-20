@@ -1,4 +1,8 @@
-"""S&P 500 discovery scan — find tickers currently meeting the user's signal.
+"""Discovery scan — find tickers currently meeting the user's signal.
+
+Universe is the high-IV thematic basket (backend/volatile_universe), not
+SP500 — same swap as ai_strategy. See that module's docstring for the
+PF / per-trade-edge rationale.
 
 Unlike `scan.py` (which detects σ-band CROSSES on the latest bar and fires alert
 emails), this module checks **current state** — is the ticker currently sitting
@@ -21,7 +25,7 @@ from backend.alert_engine import AlertRule
 from backend.channels import REGRESSION_WINDOW, compute_channels
 from backend.data import fetch_bars_bulk
 from backend.indicators import stoch_rsi
-from backend.sp500_tickers import SP500_TICKERS
+from backend.volatile_universe import universe as _scan_universe
 
 logger = logging.getLogger(__name__)
 
@@ -120,7 +124,7 @@ def run_discovery(top_n: int = 30) -> dict:
         return {"ok": False, "reason": "no ui-signal rule in KV; open the chart page to sync one"}
 
     on_watchlist = {t.upper() for t in watchlist.get()}
-    candidates = [t for t in SP500_TICKERS if t.upper() not in on_watchlist]
+    candidates = [t for t in _scan_universe() if t.upper() not in on_watchlist]
 
     # One bulk yfinance call for the whole universe (threads internally).
     try:

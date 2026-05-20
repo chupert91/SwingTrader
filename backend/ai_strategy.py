@@ -2,9 +2,13 @@
 
 The signal is a backend port of research/oversold_scanner.py (the validated
 edge): LOG 252-day regression channel, fresh first-touch into the
-z in [-2.5, -2.0] sweet spot, S&P universe, liquidity-gated, ranked by
-same-day-breadth tier then freshness. Kept in-tree (not importing the
-research script) so the production path has no dependency on research/.
+z in [-2.5, -2.0] sweet spot, liquidity-gated, ranked by same-day-breadth
+tier then freshness. Universe is the high-IV thematic basket in
+backend/volatile_universe (AI / quantum / crypto / critical-minerals /
+EV / fintech / biotech / consumer apps / tech megacap) — NOT SP500.
+The universe swap was driven by research/out/volatile_universe_sweep.txt:
+same engine, same exits, only the universe changed, PF went 1.41 -> 2.32,
+matching the user's real 2025 PF of 2.09 (research/out/personal_trade_audit.txt).
 
 Rationale lives in research/oversold_playbook.md. Tested-and-rejected (see
 the playbook "What to avoid" table): more-extreme z bands and the
@@ -27,7 +31,7 @@ import pandas as pd
 
 from backend.data import fetch_bars_bulk
 from backend.indicators import stoch_rsi
-from backend.sp500_tickers import SP500_TICKERS
+from backend.volatile_universe import universe as _scan_universe
 
 WINDOW = 252
 SWEET_LO = -2.5
@@ -113,7 +117,7 @@ def scan_candidates(
       - "require":  names with %K > stoch_oversold_max (or unknown %K) are
                    dropped entirely.
     """
-    bars = fetch_bars_bulk(SP500_TICKERS, period="14mo")
+    bars = fetch_bars_bulk(_scan_universe(), period="14mo")
     breadth: Counter = Counter()
     pending: list[dict] = []
 
@@ -246,4 +250,22 @@ def pick_contract(
     }
 
 
-__all__ = ["scan_candidates", "pick_contract", "tier_for"]
+def current_z_for_tickers(tickers: list[str]) -> dict[str, float]:
+    """Latest 252d LOG-channel z for each ticker. Returns only tickers with
+    enough history. Used by ai_trader's sigma-target exit so an open trade
+    can be closed when z reverts to a configured threshold (e.g. 0)."""
+    if not tickers:
+        return {}
+    bars = fetch_bars_bulk(tickers, period="14mo")
+    out: dict[str, float] = {}
+    for tk, df in bars.items():
+        if df is None or df.empty or len(df) < WINDOW + 2:
+            continue
+        closes = df["close"].to_numpy(dtype=float)
+        sd, _, _ = _log_channel_sd(closes)
+        if len(sd) and not np.isnan(sd[-1]):
+            out[tk] = float(sd[-1])
+    return out
+
+
+__all__ = ["scan_candidates", "pick_contract", "tier_for", "current_z_for_tickers"]

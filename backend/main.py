@@ -259,7 +259,9 @@ class AISettingsPayload(BaseModel):
     max_entries_per_day: int | None = None
     disaster_stop_enabled: bool | None = None
     disaster_stop_pct: float | None = None
+    disaster_stop_usd: float | None = None
     take_profit_pct: float | None = None
+    sigma_target: float | None = None
     time_stop_days: int | None = None
     otm_pct: float | None = None
     dte_min: int | None = None
@@ -278,7 +280,10 @@ def get_ai_state() -> dict:
 @app.post("/api/ai/settings")
 def post_ai_settings(payload: AISettingsPayload) -> dict:
     from backend import ai_store
-    patch = {k: v for k, v in payload.model_dump().items() if v is not None}
+    # exclude_unset preserves explicit nulls (so the UI can DISABLE a field
+    # like take_profit_pct or sigma_target by sending {key: null}) while
+    # still skipping fields that weren't submitted at all.
+    patch = payload.model_dump(exclude_unset=True)
     return {"ok": True, "settings": ai_store.save_settings(patch)}
 
 

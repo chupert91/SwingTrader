@@ -111,13 +111,15 @@ function renderState(d) {
     : "Bot is OFF — no new entries. Existing positions are still managed.";
   el("ai-config-warn").hidden = !!d.configured;
 
-  // Settings inputs
+  // Settings inputs — null/undefined renders as blank (the "disabled" sentinel
+  // for take_profit_pct / disaster_stop_pct / disaster_stop_usd / sigma_target).
   settingsCache = d.settings || {};
   for (const inp of document.querySelectorAll("#ai-settings [data-set]")) {
     const k = inp.dataset.set;
     if (k in settingsCache) {
-      if (inp.type === "checkbox") inp.checked = !!settingsCache[k];
-      else inp.value = settingsCache[k];
+      const v = settingsCache[k];
+      if (inp.type === "checkbox") inp.checked = !!v;
+      else inp.value = (v === null || v === undefined) ? "" : v;
     }
   }
 
@@ -242,12 +244,26 @@ el("ai-enabled").addEventListener("change", async (e) => {
 });
 
 el("ai-save-settings").addEventListener("click", async () => {
+  // Blank numeric input → send explicit null so the backend can DISABLE
+  // a previously-set field (e.g. unset take_profit_pct to enable the
+  // sigma-target exit path). The list of fields that accept null is
+  // mirrored in DEFAULT_SETTINGS (take_profit_pct, sigma_target,
+  // disaster_stop_pct, disaster_stop_usd, time_stop_days).
+  const NULLABLE = new Set([
+    "take_profit_pct", "sigma_target",
+    "disaster_stop_pct", "disaster_stop_usd",
+    "time_stop_days",
+  ]);
   const patch = {};
   for (const inp of document.querySelectorAll("#ai-settings [data-set]")) {
     const k = inp.dataset.set;
     if (inp.type === "checkbox") patch[k] = inp.checked;
     else if (inp.tagName === "SELECT") patch[k] = inp.value;
-    else if (inp.value !== "") patch[k] = Number(inp.value);
+    else if (inp.value === "") {
+      if (NULLABLE.has(k)) patch[k] = null;
+    } else {
+      patch[k] = Number(inp.value);
+    }
   }
   const status = el("ai-save-status");
   status.textContent = "Saving…";

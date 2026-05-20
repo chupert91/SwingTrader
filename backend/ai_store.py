@@ -30,18 +30,33 @@ MAX_RUNLOG = 200
 # Kill-switch defaults OFF on purpose: even on paper, an autonomous trader
 # must not start firing orders until the user explicitly enables it in the
 # UI and has watched the run log prove it behaves.
+# Defaults track the R6 / volatile-universe-best config from
+# research/out/volatile_universe_sweep.txt — the only sim config that
+# matched the user's real 2025 PF of 2.09 (volatile-universe PF 2.32,
+# CAGR +13%, Sharpe +0.61, 50 trades). See research/out/
+# personal_trade_audit.txt for the per-trade reality check that produced
+# this calibration.
+#
+# Compared to the legacy SP500-tuned defaults (TP +30%, dis -50%, time
+# 10d, dte 45-60d): we now run LONGER DTE so the option survives the
+# typical post-touch drawdown, drop the % take-profit (let winners run
+# to sigma-revert at z=0 instead), replace the % disaster stop with a
+# $-cap (your real "cap loss ~$200" rule), and extend the time stop to
+# 45 trading days so we don't cut bouncers that take 2-6 weeks to revert.
 DEFAULT_SETTINGS: dict = {
     "enabled": False,            # global kill switch
     "premium_cap_usd": 2000.0,   # max premium per single contract
     "max_concurrent": 2,         # max simultaneous open option positions
     "max_entries_per_day": 2,    # cap new entries opened in a single day
     "disaster_stop_enabled": True,
-    "disaster_stop_pct": 50.0,   # native stop at entry*(1 - pct/100)
-    "take_profit_pct": 30.0,     # resting sell limit at entry*(1 + pct/100)
-    "time_stop_days": 10,        # close if still open after N trading days
+    "disaster_stop_pct": None,   # % stop (None = off); $-cap below preferred
+    "disaster_stop_usd": 200.0,  # absolute-$ loss cap (user's real rule shape)
+    "take_profit_pct": None,     # resting sell limit (None = off; sigma-target exits instead)
+    "sigma_target": 0.0,         # close when 252d-log z >= this (None = off)
+    "time_stop_days": 45,        # close if still open after N trading days
     "otm_pct": 5.0,              # target strike ~ price*(1+otm/100)
-    "dte_min": 45,
-    "dte_max": 60,
+    "dte_min": 80,               # 90 DTE was the real-trade median (94d)
+    "dte_max": 120,
     "entry_limit_buffer_pct": 1.0,  # pay up to ask*(1+buffer/100)
     # Optional Stoch RSI timing overlay. Untested vs. the validated edge
     # (see ai_strategy docstring) so it ships OFF. mode:

@@ -5,22 +5,33 @@ One entrypoint, run_cron(), called by the hourly Vercel cron and the manual
 
   bookkeeping (always, even if the kill-switch is off so in-flight trades
   stay managed): reconcile each open trade against Alpaca orders/positions,
-  detect fills, re-arm the resting +30% take-profit and the disaster stop,
-  enforce the ~10-trading-day time stop, finalize P&L on close.
+  detect fills, (optionally) re-arm the resting take-profit, enforce the
+  $-cap / %-cap disaster stop, sigma-target exit, and time stop, finalize
+  P&L on close.
 
   entry (re-evaluated every run when market is open AND enabled, up to
   max_entries_per_day new positions per ET day via a per-day counter so a
   slot freed intraday back-fills the same day): scan the validated
-  oversold-call signal, walk the tier-ranked list, and place marketable
-  buy-limit orders subject to the per-trade premium cap, the max-concurrent
-  cap, and Alpaca options buying power.
+  oversold-call signal on the volatile-universe basket, walk the tier-
+  ranked list, and place marketable buy-limit orders subject to the
+  per-trade premium cap, the max-concurrent cap, and Alpaca options
+  buying power.
 
-Order/exit design (see the long design discussion + memory): entries are
-marketable limits (never market — option spreads); take-profit is a resting
-sell limit re-armed every session (Alpaca options TIF is day-safe either
-way); the disaster stop is a native single-leg stop order; the time stop is
-the only thing that needs this scheduled job. Loss control is sizing +
-concurrency + time stop, not a tight price stop.
+Exit design:
+  - take_profit_pct (default None): if set, resting sell-limit at
+    entry*(1+pct/100), Alpaca-day-TIF, re-armed each session.
+  - disaster_stop (software, %-of-mark OR $-cap-on-unrealized, either or
+    both can be set; whichever triggers first fires the close). Native
+    stop-sell on a long option is rejected by Alpaca as "uncovered" so we
+    enforce from the mark in this job.
+  - sigma_target (default 0.0): close when the underlying's 252d-LOG z
+    reverts back to >= target. The validated "let winners run to
+    capitulation un-wind" exit, per the volatile-universe sweep (PF 2.32).
+  - time_stop_days (default 45): hard time stop regardless of P&L.
+
+Loss control is sizing + concurrency + $-cap disaster + time stop, not a
+tight % stop. The default config tracks research/out/
+volatile_universe_sweep.txt R6 (the only +CAGR / PF>2 / Sharpe>0.5 row).
 """
 from __future__ import annotations
 
@@ -83,7 +94,12 @@ def _trading_days_since(iso_ts: str) -> int:
 
 def _arm_exits(trade: dict, settings: dict, actions: list) -> None:
     """Ensure a resting +TP limit and (optional) disaster stop exist for an
-    open trade. Re-arms anything that lapsed (day-TIF) or is missing."""
+    open trade. Re-arms anything that lapsed (day-TIF) or is missing.
+
+    take_profit_pct=None disables the resting TP entirely — the bot then
+    rides to the sigma-target / $-cap / time-stop exit checked from the
+    mark in _reconcile. Default config since the volatile-universe sweep
+    is "no TP, sigma-revert at z=0" (PF 2.32)."""
     entry = trade.get("entry") or {}
     fill = _f(entry.get("fill_price"))
     qty = int(entry.get("qty") or 1)
@@ -91,38 +107,54 @@ def _arm_exits(trade: dict, settings: dict, actions: list) -> None:
     if not fill or not symbol:
         return
 
-    tp = trade.get("tp") or {}
-    need_tp = True
-    if tp.get("order_id"):
-        try:
-            o = at.get_order(tp["order_id"])
-            if o.get("status") in ("new", "accepted", "pending_new", "partially_filled", "held"):
-                need_tp = False
-            elif o.get("status") == "filled":
-                need_tp = False  # handled by _reconcile as a close
-        except at.AlpacaError:
-            pass
-    if need_tp:
-        tp_price = round(fill * (1 + settings["take_profit_pct"] / 100.0), 2)
-        try:
-            o = at.submit_order(symbol, qty, "sell", "limit", "day", limit_price=tp_price)
-            trade["tp"] = {"order_id": o.get("id"), "limit_price": tp_price, "status": "working"}
-            actions.append(f"{trade['ticker']}: armed TP limit {tp_price}")
-        except at.AlpacaError as exc:
-            actions.append(f"{trade['ticker']}: TP arm failed: {exc}")
+    tp_pct = _f(settings.get("take_profit_pct"))
+    if tp_pct is None:
+        # No TP configured. Cancel any lingering TP order from a prior config.
+        oid = (trade.get("tp") or {}).get("order_id")
+        if oid:
+            try:
+                at.cancel_order(oid)
+            except at.AlpacaError:
+                pass
+        trade["tp"] = None
+    else:
+        tp = trade.get("tp") or {}
+        need_tp = True
+        if tp.get("order_id"):
+            try:
+                o = at.get_order(tp["order_id"])
+                if o.get("status") in ("new", "accepted", "pending_new", "partially_filled", "held"):
+                    need_tp = False
+                elif o.get("status") == "filled":
+                    need_tp = False  # handled by _reconcile as a close
+            except at.AlpacaError:
+                pass
+        if need_tp:
+            tp_price = round(fill * (1 + tp_pct / 100.0), 2)
+            try:
+                o = at.submit_order(symbol, qty, "sell", "limit", "day", limit_price=tp_price)
+                trade["tp"] = {"order_id": o.get("id"), "limit_price": tp_price, "status": "working"}
+                actions.append(f"{trade['ticker']}: armed TP limit {tp_price}")
+            except at.AlpacaError as exc:
+                actions.append(f"{trade['ticker']}: TP arm failed: {exc}")
 
     if not settings.get("disaster_stop_enabled"):
         trade["disaster_stop"] = None
         return
     # Software stop, not a native order: Alpaca rejects a resting stop-sell
     # on a long option as an "uncovered option" (account not approved for
-    # naked short calls), even though it is a closing order. So we record
-    # the threshold here and enforce it from the mark in _reconcile.
-    ds_price = round(fill * (1 - settings["disaster_stop_pct"] / 100.0), 2)
+    # naked short calls), even though it is a closing order. We record the
+    # threshold(s) here and enforce them from the mark in _reconcile.
+    # Either disaster_stop_pct OR disaster_stop_usd (or both) can be set —
+    # whichever fires first triggers the close. Defaults are pct=None and
+    # usd=200 ("cap each loss at ~$200" — the user's real rule shape).
+    ds_pct = _f(settings.get("disaster_stop_pct"))
+    ds_usd = _f(settings.get("disaster_stop_usd"))
     trade["disaster_stop"] = {
         "mode": "software",
-        "stop_price": ds_price,
-        "pct": settings["disaster_stop_pct"],
+        "pct": ds_pct,
+        "usd": ds_usd,
+        "stop_price_pct": round(fill * (1 - ds_pct / 100.0), 2) if ds_pct else None,
     }
 
 
@@ -144,7 +176,9 @@ def _finalize_close(trade: dict, exit_price: float, reason: str, actions: list) 
             at.cancel_order(oid)
 
 
-def _reconcile(trade: dict, settings: dict, clock_open: bool, actions: list) -> None:
+def _reconcile(trade: dict, settings: dict, clock_open: bool, actions: list,
+               z_by_ticker: dict[str, float] | None = None) -> None:
+    z_by_ticker = z_by_ticker or {}
     st = trade.get("status")
 
     if st == "pending_entry":
@@ -238,47 +272,64 @@ def _reconcile(trade: dict, settings: dict, clock_open: bool, actions: list) -> 
             actions.append(f"{trade['ticker']}: position gone (external close)")
             return
 
-        # Software disaster stop: native stop-sell on a long option is
-        # rejected by Alpaca as "uncovered", so enforce it from the mark.
-        if pos is not None and clock_open and settings.get("disaster_stop_enabled"):
-            plpc = _f(pos.get("unrealized_plpc"))
-            if plpc is None:
-                cur = _f(pos.get("current_price"))
-                ef = _f(entry.get("fill_price"))
-                plpc = (cur / ef - 1.0) if (cur and ef) else None
-            thr = settings["disaster_stop_pct"] / 100.0
-            if plpc is not None and plpc <= -thr:
-                oid = (trade.get("tp") or {}).get("order_id")
-                if oid:
-                    at.cancel_order(oid)
-                try:
-                    o = at.close_position(symbol)
-                    trade["status"] = "closing"
-                    trade["exit"] = {"reason": "disaster_stop", "order_id": o.get("id"),
-                                     "submitted_at": ai_store.now_iso()}
-                    actions.append(
-                        f"{trade['ticker']}: disaster stop ({plpc * 100:.0f}%) -> closing")
-                except at.AlpacaError as exc:
-                    actions.append(f"{trade['ticker']}: disaster close failed: {exc}")
-                return
-
-        # Time stop?
-        held = _trading_days_since(entry.get("filled_at", ""))
-        if held >= settings["time_stop_days"] and clock_open:
+        # ---- mark-based exit checks (priority: disaster -> sigma-target ->
+        # time stop). All are enforced from the mark because a native
+        # stop-sell on a long option is rejected by Alpaca as "uncovered".
+        def _submit_close(reason: str, detail: str) -> bool:
             oid = (trade.get("tp") or {}).get("order_id")
             if oid:
                 at.cancel_order(oid)
             try:
                 o = at.close_position(symbol)
                 trade["status"] = "closing"
-                trade["exit"] = {"reason": "time_stop", "order_id": o.get("id"),
+                trade["exit"] = {"reason": reason, "order_id": o.get("id"),
                                  "submitted_at": ai_store.now_iso()}
-                actions.append(f"{trade['ticker']}: time stop ({held}d) -> closing")
+                actions.append(f"{trade['ticker']}: {reason} ({detail}) -> closing")
+                return True
             except at.AlpacaError as exc:
-                actions.append(f"{trade['ticker']}: time-stop close failed: {exc}")
-            return
+                actions.append(f"{trade['ticker']}: {reason} close failed: {exc}")
+                return False
 
-        # Still open and healthy: keep the TP limit armed.
+        # Disaster: % of premium OR $-cap (whichever triggers first).
+        if pos is not None and clock_open and settings.get("disaster_stop_enabled"):
+            ds_pct = _f(settings.get("disaster_stop_pct"))
+            ds_usd = _f(settings.get("disaster_stop_usd"))
+            plpc = _f(pos.get("unrealized_plpc"))
+            plus = _f(pos.get("unrealized_pl"))   # absolute $ unrealized
+            if plpc is None:
+                cur = _f(pos.get("current_price"))
+                ef = _f(entry.get("fill_price"))
+                plpc = (cur / ef - 1.0) if (cur and ef) else None
+            hit_pct = (ds_pct is not None and plpc is not None
+                       and plpc <= -ds_pct / 100.0)
+            hit_usd = (ds_usd is not None and plus is not None
+                       and plus <= -ds_usd)
+            if hit_pct or hit_usd:
+                detail = (f"{plpc * 100:.0f}%" if hit_pct
+                          else f"${plus:.0f}")
+                if _submit_close("disaster_stop", detail):
+                    return
+
+        # Sigma-target exit: close when the underlying's 252d-LOG z reverts
+        # back to (or above) the configured target. The volatile-universe
+        # sweep's strongest config uses sigma_target=0.0 — exit when the
+        # capitulation is fully un-wound. Skip silently if we don't have a
+        # current z (data error / illiquid ticker) — time-stop will catch.
+        if clock_open:
+            tgt = _f(settings.get("sigma_target"))
+            cur_z = z_by_ticker.get(trade.get("ticker", "").upper())
+            if tgt is not None and cur_z is not None and cur_z >= tgt:
+                if _submit_close("sigma_target", f"z={cur_z:+.2f}>=tgt {tgt:+.2f}"):
+                    return
+
+        # Time stop (hard, regardless of P&L).
+        held = _trading_days_since(entry.get("filled_at", ""))
+        ts_days = settings.get("time_stop_days")
+        if ts_days is not None and held >= int(ts_days) and clock_open:
+            if _submit_close("time_stop", f"{held}d"):
+                return
+
+        # Still open and healthy: keep the TP limit armed (no-op if TP=None).
         if trade.get("status") == "open":
             _arm_exits(trade, settings, actions)
 
@@ -405,14 +456,29 @@ def run_cron(manual: bool = False) -> dict:
     rec["ran"] = True
 
     # Bookkeeping always runs so in-flight trades stay managed even if the
-    # kill-switch was turned off after entry.
+    # kill-switch was turned off after entry. We batch-fetch the underlying
+    # z for every open trade once per tick (rather than per-trade) so the
+    # sigma-target exit check is cheap.
     trades = ai_store.list_trades()
+    open_tickers = sorted({(t.get("ticker") or "").upper()
+                           for t in trades
+                           if t.get("status") in ("pending_entry", "open", "closing")
+                           and t.get("ticker")})
+    z_by_ticker: dict[str, float] = {}
+    if open_tickers and settings.get("sigma_target") is not None:
+        try:
+            z_by_ticker = ai_strategy.current_z_for_tickers(open_tickers)
+        except Exception as exc:
+            logger.exception("sigma-target z-fetch failed")
+            rec["errors"].append(f"sigma-target z-fetch failed: {exc!r}")
+
     dirty = False
     for t in trades:
         if t.get("status") in ("pending_entry", "open", "closing"):
             dirty = True
             try:
-                _reconcile(t, settings, is_open, rec["actions"])
+                _reconcile(t, settings, is_open, rec["actions"],
+                           z_by_ticker=z_by_ticker)
             except Exception as exc:
                 logger.exception("reconcile failed for %s", t.get("id"))
                 rec["errors"].append(f"{t.get('ticker')}: reconcile {exc!r}")
