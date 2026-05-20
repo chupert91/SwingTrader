@@ -31,8 +31,14 @@ function esc(s) {
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 }
 function tierBadge(t) {
-  const cls = { PRIME: "t-prime", OK: "t-ok", PANIC: "t-panic", WEAK: "t-weak" }[t] || "t-weak";
-  return `<span class="ai-badge ${cls}">${esc(t || "?")}</span>`;
+  // BOUNCE = chart-eye 5-feature pattern promoted a WEAK breadth candidate.
+  // See backend/ai_strategy._bounce_features + research/bounce_confirm_sweep.txt.
+  const cls = { PRIME: "t-prime", OK: "t-ok", PANIC: "t-panic",
+                BOUNCE: "t-bounce", WEAK: "t-weak" }[t] || "t-weak";
+  const title = t === "BOUNCE"
+    ? "Bounce-confirm: in band + reclaim>=0.20s + higher-low (252d) + stoch turning + support confluence"
+    : "";
+  return `<span class="ai-badge ${cls}" title="${title}">${esc(t || "?")}</span>`;
 }
 // Signal source: which band fired (primary [-2.5,-2.0] vs deep z<=-3.5).
 // Old pre-deploy trades have no source field — default to primary so the
