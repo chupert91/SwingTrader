@@ -269,6 +269,23 @@ class AISettingsPayload(BaseModel):
     entry_limit_buffer_pct: float | None = None
     stoch_rsi_mode: str | None = None
     stoch_oversold_max: float | None = None
+    # Puts sleeve (separate kill switch and capacity from calls). Without
+    # these fields the Pydantic model would silently drop the UI's puts_*
+    # POSTs before they reached ai_store.save_settings.
+    puts_enabled: bool | None = None
+    puts_premium_cap_usd: float | None = None
+    puts_max_concurrent: int | None = None
+    puts_max_entries_per_day: int | None = None
+    puts_disaster_stop_enabled: bool | None = None
+    puts_disaster_stop_pct: float | None = None
+    puts_disaster_stop_usd: float | None = None
+    puts_take_profit_pct: float | None = None
+    puts_sigma_target: float | None = None
+    puts_time_stop_days: int | None = None
+    puts_otm_pct: float | None = None
+    puts_dte_min: int | None = None
+    puts_dte_max: int | None = None
+    puts_entry_limit_buffer_pct: float | None = None
 
 
 @app.get("/api/ai/state")

@@ -40,7 +40,7 @@
     </section>
 
     <section class="bt-panel">
-      <h2 class="bt-panel-title">Strategy Settings</h2>
+      <h2 class="bt-panel-title">Strategy Settings — Calls Sleeve</h2>
       <p class="bt-hint">Defaults track the volatile-universe sweep R6 (PF 2.32, +13% CAGR): no take-profit (let winners run to z-revert at 0), $200 absolute loss cap, 45-day time stop, 80-120 DTE, 5% OTM strikes. Either Take-profit OR Sigma-target can drive winning exits; either Disaster (%) OR Disaster ($) can drive losing exits — leave a field blank to disable that one. Universe is the high-IV thematic basket (backend/volatile_universe), not S&amp;P 500.</p>
       <div class="ai-settings-grid" id="ai-settings">
         <label>Premium cap / contract ($)<input type="number" step="50" data-set="premium_cap_usd" /></label>
@@ -66,6 +66,36 @@
       <div class="ai-settings-actions">
         <button id="ai-save-settings" type="button" class="ai-btn">Save settings</button>
         <span id="ai-save-status" class="bt-hint"></span>
+      </div>
+    </section>
+
+    <section class="bt-panel">
+      <h2 class="bt-panel-title">Puts Sleeve <span class="ai-sub">counter-correlated to calls</span></h2>
+      <p class="bt-hint">Separate sleeve that fires the bounce_confirm <b>mirror</b> pattern on the overbought side (z in [+2.0,+2.5] + 0.10σ pullback from 20b z-max + LOWER 252d high + Stoch RSI %K&ge;85 rolling down + resistance confluence). Defaults track research/bounce_confirm_puts_tune (PF 2.53, +4.5% CAGR, MaxDD -17.1%, n=32/5y — first positive puts edge in the project). Independent kill switch and capacity from calls; both legs share Alpaca options BP. Save settings button below writes BOTH sleeves.</p>
+      <div class="ai-puts-kill">
+        <label class="ai-switch">
+          <input type="checkbox" id="ai-puts-enabled" data-set="puts_enabled" />
+          <span class="ai-switch-track"><span class="ai-switch-thumb"></span></span>
+        </label>
+        <div>
+          <div class="ai-switch-label">Puts sleeve enabled</div>
+          <div id="ai-puts-enabled-note" class="bt-hint">—</div>
+        </div>
+      </div>
+      <div class="ai-settings-grid" id="ai-puts-settings">
+        <label>Premium cap / contract ($)<input type="number" step="50" data-set="puts_premium_cap_usd" /></label>
+        <label>Max concurrent positions<input type="number" step="1" min="1" data-set="puts_max_concurrent" /></label>
+        <label>Max new entries / day<input type="number" step="1" min="1" data-set="puts_max_entries_per_day" /></label>
+        <label>Take-profit (%) <span class="bt-hint">blank = none</span><input type="number" step="1" data-set="puts_take_profit_pct" /></label>
+        <label>Sigma-target exit (z &le; -tgt) <span class="bt-hint">blank = none; 0 = exit when overbought un-wound</span><input type="number" step="0.25" data-set="puts_sigma_target" /></label>
+        <label>Time stop (trading days)<input type="number" step="1" data-set="puts_time_stop_days" /></label>
+        <label>Disaster stop enabled<input type="checkbox" data-set="puts_disaster_stop_enabled" /></label>
+        <label>Disaster stop (% loss) <span class="bt-hint">blank = none</span><input type="number" step="5" data-set="puts_disaster_stop_pct" /></label>
+        <label>Disaster stop ($ cap) <span class="bt-hint">blank = none</span><input type="number" step="25" data-set="puts_disaster_stop_usd" /></label>
+        <label>OTM target (% below spot)<input type="number" step="0.5" data-set="puts_otm_pct" /></label>
+        <label>DTE min<input type="number" step="1" data-set="puts_dte_min" /></label>
+        <label>DTE max<input type="number" step="1" data-set="puts_dte_max" /></label>
+        <label>Entry limit buffer (%)<input type="number" step="0.25" data-set="puts_entry_limit_buffer_pct" /></label>
       </div>
     </section>
 
