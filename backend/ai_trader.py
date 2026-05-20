@@ -412,6 +412,7 @@ def _run_entries(settings: dict, account: dict, max_new: int,
             "z_log": c["z_log"], "tier": tier, "touch_date": c["touch_date"],
             "first_touch": c["first_touch"], "same_day_breadth": c["same_day_breadth"],
             "price_at_signal": c["price"], "reversion_to_mean_pct": c["reversion_to_mean_pct"],
+            "source": c.get("source", "primary"),   # "primary" | "deep" (z<=-3.5)
         })
         ai_store.update_trade(trade["id"], {
             "status": "pending_entry",

@@ -34,8 +34,17 @@ from backend.indicators import stoch_rsi
 from backend.volatile_universe import universe as _scan_universe
 
 WINDOW = 252
+# Primary "sweet spot" band — the validated mean-reversion edge.
 SWEET_LO = -2.5
 SWEET_HI = -2.0
+# Deep capitulation threshold. Names that cross BELOW this get fired as
+# a secondary "deep" signal even if they're outside the primary band.
+# The (DEEP_THRESHOLD, SWEET_LO) range — [-3.5, -2.5] — is the DEAD ZONE
+# (research/out/sigma_band_sweep.txt: PF 1.04, CAGR -18% standalone),
+# and is explicitly NOT eligible. The hybrid 2.5+3.5 sweep
+# (research/out/calls_hybrid_band_sweep.txt) showed +5pts CAGR and
+# -13pts maxDD vs the primary-only baseline with same trade count.
+DEEP_THRESHOLD = -3.5
 RV_LOOKBACK = 20
 MIN_AVG_DOLLAR_VOL_M = 50.0
 STALE_BARS = 5
@@ -103,11 +112,30 @@ def scan_candidates(
     *,
     stoch_mode: str = "off",
     stoch_oversold_max: float = 30.0,
+    deep_threshold: float | None = DEEP_THRESHOLD,
 ) -> list[dict]:
-    """Ranked oversold-call candidates from the current S&P snapshot.
+    """Ranked oversold-call candidates (HYBRID-band: primary + deep).
 
-    WEAK tier is included in the output but the trader skips it (smallest
-    size / skip per the playbook); ranking is tier-first then freshness.
+    Two signal sources, both eligible:
+      PRIMARY band  z in [SWEET_LO, SWEET_HI] = [-2.5, -2.0]  — the
+                    validated mean-reversion edge (PF 2.32 standalone).
+      DEEP cross    z <= deep_threshold (default -3.5) AND the cross
+                    just occurred — captures rare violent capitulations
+                    (PF 6.91 standalone, n=19/5y). Pass deep_threshold=
+                    None to disable the deep leg.
+
+    The DEAD ZONE (deep_threshold, SWEET_LO) = (-3.5, -2.5) is explicitly
+    NOT eligible (PF 1.04 / CAGR -18% in standalone testing — knife-
+    falling-through entries that stop short of true capitulation).
+
+    Each candidate carries a `source` field ("primary" or "deep"). They
+    share the same capital frame in ai_trader; the engine's tier rank
+    handles competition for slots so deep signals on broad-capitulation
+    days replace lower-tier primary candidates.
+
+    Breadth is the broad-market count of crossings into z <= SWEET_HI
+    (-2.0) on the candidate's touch date — band-independent, so deep
+    candidates need broad-market confirmation just like primary ones.
 
     Stoch RSI overlay (every candidate carries stoch_rsi_k / stoch_oversold
     regardless of mode, for AI-page transparency):
@@ -136,8 +164,19 @@ def scan_candidates(
                 breadth[ts_dates[t]] += 1
 
         z = float(sd[-1])
-        if not (SWEET_LO <= z <= SWEET_HI):
+        # Band check: primary band [-2.5,-2.0] OR deep z<=deep_threshold.
+        # Dead zone (deep_threshold, SWEET_LO) is explicitly excluded.
+        in_primary = SWEET_LO <= z <= SWEET_HI
+        in_deep = deep_threshold is not None and z <= deep_threshold
+        if not (in_primary or in_deep):
             continue
+        source = "deep" if in_deep else "primary"
+        # Use the band-specific upper bound for the freshness/touch
+        # computation so the candidate's "bars_in_zone" reflects its
+        # entry into THIS band (e.g. a name that drops from -2.5 to -3.7
+        # has bars_in_zone=1 in the deep band even though it crossed -2
+        # weeks ago).
+        band_hi = deep_threshold if in_deep else SWEET_HI
         adv_m = _avg_dollar_vol_m(df)
         if adv_m < MIN_AVG_DOLLAR_VOL_M:
             continue
@@ -146,17 +185,18 @@ def scan_candidates(
         is_os = k_last is not None and k_last <= stoch_oversold_max
         if stoch_mode == "require" and not is_os:
             continue
-        zone = _bars_in_zone(sd)
+        zone = _bars_in_zone(sd, hi=band_hi)
         n = len(sd)
         touch_idx = n - zone
         touch_date = ts_dates[touch_idx] if 0 <= touch_idx < n else ts_dates[-1]
-        first_touch = bool(sd[-2] > SWEET_HI and sd[-1] <= SWEET_HI)
+        first_touch = bool(sd[-2] > band_hi and sd[-1] <= band_hi)
         price = float(closes[-1])
         reversion_pct = (center_px / price - 1.0) * 100.0
         pending.append({
             "ticker": tk,
             "price": round(price, 2),
             "z_log": round(z, 2),
+            "source": source,             # "primary" | "deep"
             "touch_date": str(touch_date),
             "_touch_date": touch_date,
             "first_touch": first_touch,
