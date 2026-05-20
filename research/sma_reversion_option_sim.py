@@ -329,6 +329,7 @@ def _stats(trades: list[dict], equity_curve: list[tuple]) -> dict:
         "median_hold": float(np.median(held)) if held.size else 0.0,
         "reasons": reasons,
         "equity_curve": equity_curve,
+        "trades": trades,
     }
 
 

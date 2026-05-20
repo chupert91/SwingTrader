@@ -196,6 +196,12 @@ def simulate_put(series: dict[str, Series], z_by_tk: dict[str, np.ndarray],
                                and -cr * total_cost_usd >= cfg.disaster_usd)
                     if hit_pct or hit_usd:
                         exit_ret, reason = cr, "disaster"
+                    elif (getattr(cfg, "underlying_target_pct", None) is not None
+                          # PUT: profit when underlying FALLS by target%. Compare
+                          # current close to entry close on the underlying.
+                          and (s.close[idx] - s.close[pos.entry_idx]) / s.close[pos.entry_idx]
+                              <= -cfg.underlying_target_pct / 100.0):
+                        exit_ret, reason = cr, "underlying_target"
                     elif (cfg.sigma_target is not None
                           and not np.isnan(z_by_tk[tk][idx])
                           # Put sigma-target: close when z reverts DOWN to

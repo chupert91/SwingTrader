@@ -74,6 +74,33 @@ Equity markets break down then snap back; melt-ups grind higher with no equivale
 - **3 entry × 3 exit = 9 cells**. Best PF 0.61. All failed.
 - **What we learned**: the green-bar exit DOES help (+16pts of CAGR vs no green-bar exit) but can't fix a bad entry signal. 63% of parabolic stocks' red bars are 1-day shake-outs before resuming the rip.
 
+### 6. v3 level-based entry (Pattern A extension OR Pattern B rejection)
+- **Files**: `research/personal_puts_level_diagnostic.py` (built the rule on the 20 real trades), `research/puts_v3_level_sweep.py` (5y forward test)
+- **Entry**: z >= +1.0 sigma AND one of:
+  - Pattern A: BTO >= 1% above a recently-broken 20d/50d swing high (extension)
+  - Pattern B: BTO within +/-3% of the 20d swing high (test/rejection)
+- **Diagnostic on 20 real puts**: rule catches 10/14 winners (71%) with 2/6 losers (33%). Strict variant (>=5% above broken) was perfect on losers (0/6) but caught only 6/14 winners.
+- **Forward test 5 exit configs**: best PF 0.72, CAGR -16.6%, n=80. **All 5 configs fail.**
+- **Why it failed**: signal catches 1,674 setups across 102 tickers. Most are stocks in healthy uptrends. The "user_trades" theme (AAPL, GOOG, IONQ, PLTR, etc. — the user's own tickers) yields 10 trades, 2 wins, -38% mean return. **Same signal on the user's own ticker list loses 80% of the time.**
+
+### 7. v3 + time-stop sweep (matched to user's 2d median hold)
+- **File**: `research/puts_v3_time_stop_sweep.py`
+- **Test**: time stops in {3, 5, 7, 10, 14, 21, 45} days +/- TP25, holding v3 entry fixed
+- **Result**: best PF 0.91 at t=10d (CAGR -3.7%), best CAGR -3.5% at t=21d (PF 0.89). **All 10 configs fail.**
+- **Why it failed**: bot's wins live in 6-20d holds (sigma reversion takes time on daily bars); user's wins live in 2-5d (intraday signals). Tight time stops cut the bot's own winning mechanic.
+
+### 8. v3 + underlying-drop-target exit
+- **File**: `research/puts_v3_underlying_target_sweep.py`
+- **Test**: close when underlying down {2, 3, 5, 7, 10}% from entry, +/- time stop
+- **Result**: best PF 0.86 at -7%, best PF still 0.91 at baseline (no underlying target). **All 10 configs fail.**
+- **Why it failed**: fixed-% drops on the underlying fire too early and cut sigma-revert winners. The user's "underlying drops 5%" actually means "underlying drops 5% in a specific context that signals real reversal" — context not in daily-bar features.
+
+### 9. v3 + ticker-specific LEVEL-retest exit (correct mental model)
+- **File**: `research/puts_v3_level_retest_sweep.py`
+- **Test**: at entry, capture the broken_level (highest sh20/sh50 below BTO close). During the trade, close when underlying close re-enters +/- band of that level. Bands {1, 2, 3, 5}% x time stops {7, 10, 21, 45}.
+- **Result**: best PF 0.81 at band ±2% + t=21d (CAGR -2.0%), still **below the sigma-only baseline (PF 0.91)**. **All 18 configs fail.**
+- **Why it failed (the deepest insight)**: the bot's mechanical sh_20/sh_50 lookbacks don't match the user's visual level identification. Concrete: for GOOG 11/10, the user's drawn $275 line was the late-October consolidation top (~30 bars back from BTO). The bot's broken_level was NULL — sh_20 and sh_50 both = $291.93, above entry. **The level the bot can name is not the level the user trades off of.** Additionally, the bot's level-retest hits happen at 9-15d mean hold, by which time IV crush + theta have erased the option premium even on small underlying drops. The user closes the same retest in 2-5 days while IV is still elevated.
+
 ## The diagnosis
 
 Three independent backtests on different signal formulations, all failing PF 1.5. The bottleneck isn't calibration — it's information.
@@ -128,25 +155,64 @@ Revisit the put leg only if at least one of these becomes available:
 All scripts in `research/`:
 
 ```
-personal_trade_audit.py            parses brokerage CSV, pairs BTO/STC
-personal_puts_pattern_analysis.py  per-put feature analysis
-personal_puts_post_entry_paths.py  underlying paths around entry
-puts_threshold_sensitivity.py      threshold sweep on 20 real trades
+personal_trade_audit.py             parses brokerage CSV, pairs BTO/STC
+personal_puts_pattern_analysis.py   per-put feature analysis
+personal_puts_post_entry_paths.py   underlying paths around entry
+puts_threshold_sensitivity.py       threshold sweep on 20 real trades
+personal_puts_level_diagnostic.py   v3 hypothesis on 20 trades
+personal_trade_snapshots.py         44 paired trades, [-10td..exit+10td] grids
+personal_put_pre_entry_chart.py     252td candle chart for a single put (no overlays)
+personal_put_sigma_overlay.py       sigma-band overlay for a single put
 
-volatile_universe_puts_sweep.py    symmetric mirror test
-puts_extreme_band_sweep.py         6 bands x 5 exits
-puts_parabolic_exhaustion_sweep.py forward test of thresholds
-puts_breather_scalp_sweep.py       pullback+green-bar exit
+volatile_universe_puts_sweep.py     #1 symmetric mirror test
+puts_extreme_band_sweep.py          #2 6 bands x 5 exits
+puts_parabolic_exhaustion_sweep.py  #3 forward test of thresholds
+puts_breather_scalp_sweep.py        #4 pullback+green-bar exit
+
+puts_v3_level_sweep.py              #6 v3 level-based entry
+puts_v3_trade_drilldown.py             per-trade autopsy of v3
+puts_v3_time_stop_sweep.py          #7 v3 + time-stop sweep
+puts_v3_underlying_target_sweep.py  #8 v3 + underlying-drop target
+puts_v3_level_retest_sweep.py       #9 v3 + ticker-specific level-retest
 ```
 
-Output text + plots land in `research/out/`. The full chain produces 80+ pages of evidence; this playbook is the executive summary.
+Output text + plots land in `research/out/`. The full chain produces 120+ pages of evidence; this playbook is the executive summary.
+
+## The PF ceiling — what 9 sweeps tell us
+
+```
+PF best        config
+0.61           breather-scalp + green-bar exit
+0.72           v3 level entry (default config)
+0.80-0.82      various symmetric mirrors / parabolic-exhaustion
+0.86           v3 + underlying-drop -7% + t=10
+0.89           v3 + sigma-only + t=21
+0.91           v3 + sigma-only + t=10        <- ceiling
+0.91           PF ceiling across 9 sweeps
+1.50           ship gate (PF >= 1.5, CAGR > 0, n >= 10)
+3.80           user's REAL 2025 manual puts
+```
+
+**Across 30+ exit configurations, 5 signal formulations, and 1 engine-level feature add, the bot's PF ceiling is 0.91.** The 0.6x gap to the ship gate (and 4x gap to the user's manual book) is structural information asymmetry, not signal misspecification.
 
 ## Final verdict
 
 Calls leg is the bot. Puts are yours. The asymmetry between crash-side and melt-up-side mean-reversion is a real and well-documented feature of equity markets — every published "short the bubble" paper has the same caveats, and most retail short books die for the same reason your bot's put leg would.
 
-You found this not by speculation but by running five backtests, parsing your own trade history, mapping the price paths, and watching three independent signal formulations fail with PF < 1. That's a useful negative result — it tells you where to spend research time next (on the call leg, not on the put leg).
+You found this not by speculation but by running nine backtests, parsing your own trade history, mapping the price paths, and watching five independent signal formulations fail with PF < 1. The 9th iteration (ticker-specific level-retest exit, the correct mental model) **still failed** — at PF 0.81, below even the sigma-only baseline.
+
+That's a useful negative result — it tells you where to spend research time next (on the call leg, not on the put leg).
+
+## What WOULD it take to revive this?
+
+Future revisit only if at least one of these becomes available:
+
+1. **Consolidation-top level detection** that matches your visual identification (pivot clustering, 60-120d lookback, range detection). Engineering: ~200 lines + research project. Probably bumps PF to 1.0-1.2 — still below gate.
+2. **Catalyst-aware features** (earnings calendar, news sentiment, sector momentum, VIX state). Test parabolic-exhaustion filter restricted to "high-VIX OR sector-overbought" regimes.
+3. **Intraday signal triggers** (1m bars long-history). Would let us test same-session entry/exit which is most of your puts edge.
+
+Without one of these, do not re-run another z/level/exit variant. The space is exhausted.
 
 ---
 
-*Status: shelved 2026-05-19. See `memory/put_leg_falsified.md` for the project-memory pointer.*
+*Status: shelved 2026-05-20 after 9 falsifications. See `memory/put_leg_falsified.md` for the project-memory pointer.*

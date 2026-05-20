@@ -1,0 +1,57 @@
+v3 PUTS + UNDERLYING-DROP-TARGET EXIT on 5y volatile universe
+
+  signal  : v3 level-based (z>=+1, Pattern A or B, cooldown 5d)
+  pinned  : no TP, sigma=0, $300 cap, IV 1.00/30, dte 90, otm 5%
+  vary    : underlying-drop target in {2,3,5,7,10}% +/- time stop
+  univ    : volatile basket (102 tickers, 5y)
+  signals : 1677 raw
+
+Reference - user's REAL 2025 winning puts:
+  GOOG  -4.7% in 4d  -> +35% option
+  APLD -18.9% in 7d  -> +34% option
+  IONQ  -8.9% in 2d  -> +30% option
+  median: ~-5% underlying drop / ~2-5d hold
+
+  config         trades |  CAGR% | totRet% | maxDD% | Shrp |  MAR | win% |   PF | hold  | exit-reason mix
+  baseline t=10 (no underlying target)   172 |   -3.7 |   -17.3 |  -50.8 | -0.01 | -0.07 | 36.0 |  0.91 |  8.6d  | disaster=37,sigma_target=15,time_stop=120
+  UND drop -2% + t=10   237 |  -23.4 |   -73.7 |  -80.4 | -0.70 | -0.29 | 54.4 |  0.66 |  5.3d  | disaster=38,time_stop=65,underlying_target=134
+  UND drop -3% + t=10   220 |  -18.9 |   -64.8 |  -73.7 | -0.51 | -0.26 | 49.5 |  0.71 |  6.0d  | disaster=39,sigma_target=1,time_stop=73,underlying_target=107
+  UND drop -5% + t=10   198 |  -19.2 |   -65.5 |  -69.7 | -0.61 | -0.28 | 42.9 |  0.75 |  7.0d  | disaster=36,sigma_target=2,time_stop=88,underlying_target=72
+  UND drop -7% + t=10   193 |   -3.6 |   -16.9 |  -43.5 | -0.06 | -0.08 | 42.0 |  0.86 |  7.3d  | disaster=36,sigma_target=3,time_stop=97,underlying_target=57
+  UND drop -10% + t=10   173 |  -38.3 |   -91.1 |  -93.8 | -0.58 | -0.41 | 34.7 |  0.71 |  8.1d  | disaster=35,sigma_target=7,time_stop=104,underlying_target=27
+  UND drop -5% + t=5   275 |  -23.9 |   -74.4 |  -78.4 | -0.52 | -0.30 | 40.4 |  0.65 |  4.2d  | disaster=37,time_stop=171,underlying_target=67
+  UND drop -5% + t=7   228 |  -20.5 |   -68.2 |  -71.3 | -0.56 | -0.29 | 39.0 |  0.62 |  5.6d  | disaster=40,sigma_target=1,time_stop=127,underlying_target=60
+  UND drop -3% + t=5   287 |  -29.3 |   -82.3 |  -86.0 | -0.35 | -0.34 | 42.5 |  0.61 |  3.9d  | disaster=36,time_stop=149,underlying_target=102
+  UND drop -3% + t=7   253 |  -18.0 |   -63.0 |  -70.9 | -0.47 | -0.25 | 46.2 |  0.67 |  4.8d  | disaster=40,time_stop=106,underlying_target=107
+
+[HEADLINE]
+  best by CAGR  : UND drop -7% + t=10
+    CAGR -3.6%  PF 0.86  Sharpe -0.06  maxDD -44%  n=193
+  best by PF    : baseline t=10 (no underlying target)
+    CAGR -3.7%  PF 0.91  Sharpe -0.01  maxDD -51%  n=172
+  best by Sharpe: baseline t=10 (no underlying target)
+    CAGR -3.7%  PF 0.91  Sharpe -0.01  maxDD -51%  n=172
+
+[SHIP GATE]  PF >= 1.5  AND  CAGR > 0  AND  n >= 10
+  [fail] baseline t=10 (no underlying target)
+           PF  0.91  CAGR   -3.7%  n  172  maxDD  -51%
+  [fail] UND drop -2% + t=10
+           PF  0.66  CAGR  -23.4%  n  237  maxDD  -80%
+  [fail] UND drop -3% + t=10
+           PF  0.71  CAGR  -18.9%  n  220  maxDD  -74%
+  [fail] UND drop -5% + t=10
+           PF  0.75  CAGR  -19.2%  n  198  maxDD  -70%
+  [fail] UND drop -7% + t=10
+           PF  0.86  CAGR   -3.6%  n  193  maxDD  -44%
+  [fail] UND drop -10% + t=10
+           PF  0.71  CAGR  -38.3%  n  173  maxDD  -94%
+  [fail] UND drop -5% + t=5
+           PF  0.65  CAGR  -23.9%  n  275  maxDD  -78%
+  [fail] UND drop -5% + t=7
+           PF  0.62  CAGR  -20.5%  n  228  maxDD  -71%
+  [fail] UND drop -3% + t=5
+           PF  0.61  CAGR  -29.3%  n  287  maxDD  -86%
+  [fail] UND drop -3% + t=7
+           PF  0.67  CAGR  -18.0%  n  253  maxDD  -71%
+
+[VERDICT] NO config passes ship gate

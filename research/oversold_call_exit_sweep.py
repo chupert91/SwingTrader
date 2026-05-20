@@ -120,6 +120,11 @@ class ExitCfg:
     # real-trade median DTE was 94d (not 45), and strikes were ATM-ish (not 5% OTM).
     otm_pct: float = OTM_PCT
     dte: int = DTE
+    # Underlying-pct directional target. For calls: close when underlying has
+    # RISEN by this % from entry close (positive). For puts: close when
+    # underlying has FALLEN by this % from entry close (positive value, sign
+    # interpreted by the simulator). None = disabled.
+    underlying_target_pct: float | None = None
 
 
 def _tier_for(b: int) -> str:
