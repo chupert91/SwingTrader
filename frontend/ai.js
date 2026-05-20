@@ -135,9 +135,12 @@ function renderState(d) {
   el("ai-config-warn").hidden = !!d.configured;
 
   // Settings inputs — null/undefined renders as blank (the "disabled" sentinel
-  // for take_profit_pct / disaster_stop_pct / disaster_stop_usd / sigma_target).
+  // for take_profit_pct / disaster_stop_pct / disaster_stop_usd / sigma_target,
+  // and their puts_* counterparts). The puts panel uses the same data-set
+  // contract, so a single selector list hydrates both sleeves.
   settingsCache = d.settings || {};
-  for (const inp of document.querySelectorAll("#ai-settings [data-set]")) {
+  for (const inp of document.querySelectorAll(
+      "#ai-settings [data-set], #ai-puts-settings [data-set], #ai-puts-enabled[data-set]")) {
     const k = inp.dataset.set;
     if (k in settingsCache) {
       const v = settingsCache[k];
@@ -145,6 +148,12 @@ function renderState(d) {
       else inp.value = (v === null || v === undefined) ? "" : v;
     }
   }
+  // Puts kill-switch status note (mirrors the calls one).
+  const pe = !!settingsCache.puts_enabled;
+  const pNote = el("ai-puts-enabled-note");
+  if (pNote) pNote.textContent = pe
+    ? "Puts sleeve ON — scanner runs each cron; signals fire when all 5 mirror features pass."
+    : "Puts sleeve OFF — no put entries. Open puts (if any) are still managed.";
 
   // Tiles
   const a = d.account || {};
@@ -270,15 +279,20 @@ el("ai-save-settings").addEventListener("click", async () => {
   // Blank numeric input → send explicit null so the backend can DISABLE
   // a previously-set field (e.g. unset take_profit_pct to enable the
   // sigma-target exit path). The list of fields that accept null is
-  // mirrored in DEFAULT_SETTINGS (take_profit_pct, sigma_target,
-  // disaster_stop_pct, disaster_stop_usd, time_stop_days).
+  // mirrored in DEFAULT_SETTINGS for BOTH sleeves (calls + puts).
   const NULLABLE = new Set([
     "take_profit_pct", "sigma_target",
     "disaster_stop_pct", "disaster_stop_usd",
     "time_stop_days",
+    "puts_take_profit_pct", "puts_sigma_target",
+    "puts_disaster_stop_pct", "puts_disaster_stop_usd",
+    "puts_time_stop_days",
   ]);
   const patch = {};
-  for (const inp of document.querySelectorAll("#ai-settings [data-set]")) {
+  // One pass over BOTH sleeves' grids + the puts kill-switch toggle so the
+  // single Save writes the entire bot config in one /api/ai/settings POST.
+  for (const inp of document.querySelectorAll(
+      "#ai-settings [data-set], #ai-puts-settings [data-set], #ai-puts-enabled[data-set]")) {
     const k = inp.dataset.set;
     if (inp.type === "checkbox") patch[k] = inp.checked;
     else if (inp.tagName === "SELECT") patch[k] = inp.value;
@@ -296,6 +310,18 @@ el("ai-save-settings").addEventListener("click", async () => {
     await load();
   } catch (err) {
     status.textContent = `Failed: ${err.message}`;
+  }
+});
+
+// Puts kill-switch toggle — instant POST, mirrors the calls switch
+// behavior so flipping it doesn't require clicking Save.
+el("ai-puts-enabled").addEventListener("change", async (e) => {
+  try {
+    await postSettings({ puts_enabled: e.target.checked });
+    await load();
+  } catch (err) {
+    el("ai-save-status").textContent = `Failed: ${err.message}`;
+    e.target.checked = !e.target.checked;
   }
 });
 

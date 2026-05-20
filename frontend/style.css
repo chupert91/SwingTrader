@@ -2003,6 +2003,7 @@ body.page-backtest { overflow: auto; }
   gap: 16px; flex-wrap: wrap;
 }
 .ai-killswitch { display: flex; align-items: center; gap: 12px; }
+.ai-puts-kill { display: flex; align-items: center; gap: 12px; margin: 8px 0 14px 0; }
 .ai-switch { position: relative; display: inline-block; cursor: pointer; }
 .ai-switch input { position: absolute; opacity: 0; width: 0; height: 0; }
 .ai-switch-track {
