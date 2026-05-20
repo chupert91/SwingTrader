@@ -1,0 +1,108 @@
+Multi-axis tuning around bounce-puts anchor.
+Anchor: reclaim=0.1, turn=1.0, ob_floor=70.0, hits=5, cooldown=20, support_pct=0.02, dte=45, otm=5.0, disaster_usd=200.0, time_stop=45
+Sweep one axis at a time, hold the rest at anchor.
+
+[ANCHOR]
+  config         trades |  CAGR% | totRet% | maxDD% | Shrp |  MAR | win% |   PF | hold  | exit-reason mix
+  anchor (n_sig=89)    45 |   +2.2 |   +11.2 |  -24.9 |  0.22 |  0.09 | 33.3 |  1.83 | 21.7d  | disaster=15,expiry=24,sigma_target=6
+
+[SWEEP reclaim]  (other axes = anchor)
+  config         trades |  CAGR% | totRet% | maxDD% | Shrp |  MAR | win% |   PF | hold  | exit-reason mix
+  reclaim=0.05 (n_sig=94)    47 |   -1.1 |    -5.3 |  -23.4 | -0.03 | -0.05 | 34.0 |  1.40 | 21.3d  | disaster=16,expiry=25,sigma_target=6
+  reclaim=0.08 (n_sig=89)    46 |   +1.5 |    +7.9 |  -23.5 |  0.18 |  0.07 | 34.8 |  1.67 | 21.7d  | disaster=15,expiry=24,sigma_target=7
+  reclaim=0.1 (n_sig=89)    45 |   +2.2 |   +11.2 |  -24.9 |  0.22 |  0.09 | 33.3 |  1.83 | 21.7d  | disaster=15,expiry=24,sigma_target=6
+  reclaim=0.12 (n_sig=87)    44 |   +1.3 |    +6.7 |  -29.0 |  0.16 |  0.05 | 31.8 |  1.78 | 21.9d  | disaster=15,expiry=24,sigma_target=5
+  reclaim=0.15 (n_sig=80)    42 |   -9.5 |   -39.3 |  -47.5 | -0.65 | -0.20 | 21.4 |  0.58 | 22.2d  | disaster=14,expiry=25,sigma_target=3
+  reclaim=0.2 (n_sig=76)    43 |   -9.5 |   -39.3 |  -46.6 | -0.69 | -0.20 | 23.3 |  0.79 | 20.8d  | disaster=17,expiry=23,sigma_target=3
+
+[SWEEP turn]  (other axes = anchor)
+  config         trades |  CAGR% | totRet% | maxDD% | Shrp |  MAR | win% |   PF | hold  | exit-reason mix
+  turn=0.5 (n_sig=90)    45 |   +2.2 |   +11.2 |  -24.9 |  0.22 |  0.09 | 33.3 |  1.83 | 21.7d  | disaster=15,expiry=24,sigma_target=6
+  turn=1.0 (n_sig=89)    45 |   +2.2 |   +11.2 |  -24.9 |  0.22 |  0.09 | 33.3 |  1.83 | 21.7d  | disaster=15,expiry=24,sigma_target=6
+  turn=3.0 (n_sig=86)    44 |   +1.3 |    +6.6 |  -29.2 |  0.16 |  0.04 | 31.8 |  1.77 | 21.9d  | disaster=15,expiry=24,sigma_target=5
+  turn=5.0 (n_sig=83)    46 |  -11.2 |   -44.7 |  -50.9 | -0.68 | -0.22 | 21.7 |  0.80 | 19.5d  | disaster=21,expiry=21,sigma_target=4
+  turn=10.0 (n_sig=76)    46 |   -8.3 |   -35.2 |  -50.0 | -0.52 | -0.17 | 28.3 |  1.01 | 19.9d  | disaster=21,expiry=21,sigma_target=4
+
+[SWEEP ob_floor]  (other axes = anchor)
+  config         trades |  CAGR% | totRet% | maxDD% | Shrp |  MAR | win% |   PF | hold  | exit-reason mix
+  ob_floor=65 (n_sig=103)    48 |   -0.9 |    -4.5 |  -37.8 |  0.01 | -0.02 | 29.2 |  1.49 | 20.1d  | disaster=18,expiry=23,sigma_target=7
+  ob_floor=70 (n_sig=89)    45 |   +2.2 |   +11.2 |  -24.9 |  0.22 |  0.09 | 33.3 |  1.83 | 21.7d  | disaster=15,expiry=24,sigma_target=6
+  ob_floor=75 (n_sig=85)    44 |   +2.0 |   +10.5 |  -25.5 |  0.21 |  0.08 | 31.8 |  1.82 | 21.5d  | disaster=15,expiry=23,sigma_target=6
+  ob_floor=80 (n_sig=80)    44 |   +2.2 |   +11.4 |  -25.0 |  0.23 |  0.09 | 31.8 |  1.84 | 21.5d  | disaster=15,expiry=23,sigma_target=6
+  ob_floor=85 (n_sig=61)    32 |   +4.5 |   +24.5 |  -17.1 |  0.42 |  0.26 | 37.5 |  2.53 | 19.4d  | disaster=13,expiry=13,sigma_target=6
+
+[SWEEP hits]  (other axes = anchor)
+  config         trades |  CAGR% | totRet% | maxDD% | Shrp |  MAR | win% |   PF | hold  | exit-reason mix
+  hits=3 (n_sig=103)    47 |   +2.8 |   +15.1 |  -23.9 |  0.28 |  0.12 | 31.9 |  1.82 | 22.1d  | disaster=15,expiry=25,sigma_target=7
+  hits=5 (n_sig=89)    45 |   +2.2 |   +11.2 |  -24.9 |  0.22 |  0.09 | 33.3 |  1.83 | 21.7d  | disaster=15,expiry=24,sigma_target=6
+  hits=8 (n_sig=76)    42 |   +1.2 |    +5.9 |  -25.4 |  0.15 |  0.05 | 33.3 |  1.57 | 21.4d  | disaster=15,expiry=21,sigma_target=6
+  hits=12 (n_sig=54)    34 |   -3.3 |   -15.4 |  -27.8 | -0.22 | -0.12 | 29.4 |  0.92 | 20.4d  | disaster=14,expiry=15,sigma_target=5
+
+[SWEEP cooldown]  (other axes = anchor)
+  config         trades |  CAGR% | totRet% | maxDD% | Shrp |  MAR | win% |   PF | hold  | exit-reason mix
+  cooldown=10 (n_sig=100)    48 |   +0.5 |    +2.4 |  -33.0 |  0.11 |  0.01 | 29.2 |  1.55 | 21.6d  | disaster=17,expiry=25,sigma_target=6
+  cooldown=20 (n_sig=89)    45 |   +2.2 |   +11.2 |  -24.9 |  0.22 |  0.09 | 33.3 |  1.83 | 21.7d  | disaster=15,expiry=24,sigma_target=6
+  cooldown=30 (n_sig=84)    45 |   +1.8 |    +9.4 |  -29.8 |  0.20 |  0.06 | 28.9 |  1.65 | 22.4d  | disaster=14,expiry=25,sigma_target=6
+  cooldown=40 (n_sig=82)    44 |   +2.6 |   +13.5 |  -27.7 |  0.26 |  0.09 | 29.5 |  1.67 | 22.8d  | disaster=12,expiry=26,sigma_target=6
+
+[SWEEP dte]  (other axes = anchor)
+  config         trades |  CAGR% | totRet% | maxDD% | Shrp |  MAR | win% |   PF | hold  | exit-reason mix
+  dte=30 (n_sig=89)    51 |   +2.8 |   +14.8 |  -18.4 |  0.28 |  0.15 | 29.4 |  1.82 | 16.2d  | disaster=16,expiry=28,sigma_target=7
+  dte=45 (n_sig=89)    45 |   +2.2 |   +11.2 |  -24.9 |  0.22 |  0.09 | 33.3 |  1.83 | 21.7d  | disaster=15,expiry=24,sigma_target=6
+  dte=60 (n_sig=89)    45 |   -3.3 |   -15.4 |  -38.8 | -0.10 | -0.08 | 31.1 |  1.19 | 24.1d  | disaster=21,expiry=12,sigma_target=12
+  dte=90 (n_sig=89)    43 |   -7.0 |   -30.4 |  -48.3 | -0.31 | -0.14 | 20.9 |  0.63 | 25.5d  | disaster=20,sigma_target=10,time_stop=13
+
+[SWEEP otm]  (other axes = anchor)
+  config         trades |  CAGR% | totRet% | maxDD% | Shrp |  MAR | win% |   PF | hold  | exit-reason mix
+  otm=0.0 (n_sig=89)    49 |   +5.7 |   +32.2 |  -20.6 |  0.40 |  0.28 | 34.7 |  1.26 | 19.6d  | disaster=24,expiry=19,sigma_target=6
+  otm=2.5 (n_sig=89)    48 |   +4.1 |   +22.0 |  -30.2 |  0.32 |  0.13 | 33.3 |  1.42 | 20.6d  | disaster=20,expiry=22,sigma_target=6
+  otm=5.0 (n_sig=89)    45 |   +2.2 |   +11.2 |  -24.9 |  0.22 |  0.09 | 33.3 |  1.83 | 21.7d  | disaster=15,expiry=24,sigma_target=6
+  otm=7.5 (n_sig=89)    44 |   -5.4 |   -24.3 |  -32.9 | -0.45 | -0.16 | 31.8 |  0.90 | 23.4d  | disaster=16,expiry=23,sigma_target=5
+  otm=10.0 (n_sig=89)    41 |   -1.4 |    -6.8 |  -16.6 | -0.10 | -0.08 | 31.7 |  1.16 | 26.4d  | disaster=5,expiry=29,sigma_target=7
+
+[SWEEP dis_usd]  (other axes = anchor)
+  config         trades |  CAGR% | totRet% | maxDD% | Shrp |  MAR | win% |   PF | hold  | exit-reason mix
+  dis_usd=None (n_sig=89)    37 |   +8.9 |   +53.0 |  -25.1 |  0.51 |  0.35 | 45.9 |  1.60 | 28.3d  | expiry=29,sigma_target=8
+  dis_usd=100 (n_sig=89)    55 |   +4.7 |   +25.6 |  -25.9 |  0.37 |  0.18 | 29.1 |  1.73 | 16.0d  | disaster=36,expiry=11,sigma_target=8
+  dis_usd=200 (n_sig=89)    45 |   +2.2 |   +11.2 |  -24.9 |  0.22 |  0.09 | 33.3 |  1.83 | 21.7d  | disaster=15,expiry=24,sigma_target=6
+  dis_usd=300 (n_sig=89)    42 |   -2.6 |   -12.4 |  -22.9 | -0.12 | -0.11 | 35.7 |  1.18 | 24.4d  | disaster=12,expiry=25,sigma_target=5
+  dis_usd=500 (n_sig=89)    39 |   -2.3 |   -11.2 |  -23.3 | -0.10 | -0.10 | 41.0 |  1.31 | 26.9d  | disaster=4,expiry=28,sigma_target=7
+
+[SWEEP time_stop]  (other axes = anchor)
+  config         trades |  CAGR% | totRet% | maxDD% | Shrp |  MAR | win% |   PF | hold  | exit-reason mix
+  time_stop=20 (n_sig=89)    55 |   -3.7 |   -17.3 |  -35.2 | -0.17 | -0.11 | 29.1 |  1.17 | 15.0d  | disaster=21,sigma_target=6,time_stop=28
+  time_stop=30 (n_sig=89)    46 |   +0.2 |    +1.2 |  -37.4 |  0.10 |  0.01 | 30.4 |  1.73 | 20.7d  | disaster=17,expiry=8,sigma_target=6,time_stop=15
+  time_stop=45 (n_sig=89)    45 |   +2.2 |   +11.2 |  -24.9 |  0.22 |  0.09 | 33.3 |  1.83 | 21.7d  | disaster=15,expiry=24,sigma_target=6
+  time_stop=60 (n_sig=89)    45 |   +2.2 |   +11.2 |  -24.9 |  0.22 |  0.09 | 33.3 |  1.83 | 21.7d  | disaster=15,expiry=24,sigma_target=6
+  time_stop=None (n_sig=89)    45 |   +2.2 |   +11.2 |  -24.9 |  0.22 |  0.09 | 33.3 |  1.83 | 21.7d  | disaster=15,expiry=24,sigma_target=6
+
+[BEST PER AXIS (by CAGR)]
+  reclaim    = 0.1    -> CAGR +2.2%  PF 1.83  n=45
+  turn       = 0.5    -> CAGR +2.2%  PF 1.83  n=45
+  ob_floor   = 85     -> CAGR +4.5%  PF 2.53  n=32
+  hits       = 3      -> CAGR +2.8%  PF 1.82  n=47
+  cooldown   = 40     -> CAGR +2.6%  PF 1.67  n=44
+  dte        = 30     -> CAGR +2.8%  PF 1.82  n=51
+  otm        = 0.0    -> CAGR +5.7%  PF 1.26  n=49
+  dis_usd    = None   -> CAGR +8.9%  PF 1.60  n=37
+  time_stop  = 45     -> CAGR +2.2%  PF 1.83  n=45
+
+[BEST PER AXIS (by PF)]
+  reclaim    = 0.1    -> PF 1.83  CAGR +2.2%  n=45
+  turn       = 0.5    -> PF 1.83  CAGR +2.2%  n=45
+  ob_floor   = 85     -> PF 2.53  CAGR +4.5%  n=32
+  hits       = 5      -> PF 1.83  CAGR +2.2%  n=45
+  cooldown   = 20     -> PF 1.83  CAGR +2.2%  n=45
+  dte        = 45     -> PF 1.83  CAGR +2.2%  n=45
+  otm        = 5.0    -> PF 1.83  CAGR +2.2%  n=45
+  dis_usd    = 200    -> PF 1.83  CAGR +2.2%  n=45
+  time_stop  = 45     -> PF 1.83  CAGR +2.2%  n=45
+
+[STACKED TUNED CONFIGS]
+  config         trades |  CAGR% | totRet% | maxDD% | Shrp |  MAR | win% |   PF | hold  | exit-reason mix
+  anchor (n_sig=89)    45 |   +2.2 |   +11.2 |  -24.9 |  0.22 |  0.09 | 33.3 |  1.83 | 21.7d  | disaster=15,expiry=24,sigma_target=6
+  tuned-CAGR (n_sig=62)    30 |   +0.9 |    +4.7 |  -25.1 |  0.14 |  0.04 | 43.3 |  1.48 | 20.2d  | expiry=25,sigma_target=5
+  tuned-PF (n_sig=62)    32 |   +4.5 |   +24.5 |  -17.1 |  0.42 |  0.26 | 37.5 |  2.53 | 19.4d  | disaster=13,expiry=13,sigma_target=6
+
+tuned-CAGR  config: {'reclaim': 0.1, 'turn': 0.5, 'ob_floor': 85, 'hits': 3, 'cooldown': 40, 'support_pct': 0.02, 'dte': 30, 'otm': 0.0, 'disaster_usd': None, 'time_stop': 45}
+tuned-PF    config: {'reclaim': 0.1, 'turn': 0.5, 'ob_floor': 85, 'hits': 5, 'cooldown': 20, 'support_pct': 0.02, 'dte': 45, 'otm': 5.0, 'disaster_usd': 200, 'time_stop': 45}
