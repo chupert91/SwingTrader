@@ -34,6 +34,15 @@ function tierBadge(t) {
   const cls = { PRIME: "t-prime", OK: "t-ok", PANIC: "t-panic", WEAK: "t-weak" }[t] || "t-weak";
   return `<span class="ai-badge ${cls}">${esc(t || "?")}</span>`;
 }
+// Signal source: which band fired (primary [-2.5,-2.0] vs deep z<=-3.5).
+// Old pre-deploy trades have no source field — default to primary so the
+// row never renders blank.
+function sourceBadge(src) {
+  const s = (src === "deep") ? "deep" : "primary";
+  const cls = (s === "deep") ? "src-deep" : "src-primary";
+  const label = (s === "deep") ? "DEEP" : "primary";
+  return `<span class="ai-badge ${cls}" title="${s === 'deep' ? 'Deep capitulation cross (z<=-3.5)' : 'Primary band [-2.5,-2.0]'}">${label}</span>`;
+}
 function reasonBadge(r) {
   const map = {
     take_profit: ["Take profit", "t-prime"],
@@ -152,7 +161,7 @@ function renderState(d) {
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${esc(t.ticker)}</td>
-      <td>${tierBadge(t.signal?.tier)}</td>
+      <td>${tierBadge(t.signal?.tier)} ${sourceBadge(t.signal?.source)}</td>
       <td>${contractLabel(t.contract)}</td>
       <td><span class="ai-badge t-weak">${esc(t.status)}</span></td>
       <td>${entry.fill_price != null ? "$" + entry.fill_price : (entry.limit_price != null ? "lmt $" + entry.limit_price : "—")}</td>
@@ -181,7 +190,7 @@ function renderState(d) {
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${esc(t.ticker)}</td>
-      <td>${tierBadge(t.signal?.tier)}</td>
+      <td>${tierBadge(t.signal?.tier)} ${sourceBadge(t.signal?.source)}</td>
       <td>${contractLabel(t.contract)}</td>
       <td>${entry.fill_price != null ? "$" + entry.fill_price : "—"}</td>
       <td>${exit.fill_price != null ? "$" + exit.fill_price : "—"}</td>
