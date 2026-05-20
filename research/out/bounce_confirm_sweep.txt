@@ -1,0 +1,28 @@
+Bounce-confirm sweep on the VOLATILE THEMATIC universe.
+Pattern: F1 z in [-2.5,-2.0], F2 reclaim from 20b z-min, F3 higher
+low on 252d, F4 Stoch RSI oversold+turning, F5 >=5 prior lows
+within +/-2.0% of recent 20b low. Cooldown 20b.
+Exit rails: R6 live (no TP, sigma>=0, $200 disaster, 45td, 5% OTM, 45 DTE).
+Tickers with full 252d history: 102.
+
+[BASELINE -- live edge (primary band + tier in OK/PRIME/PANIC)]
+  config         trades |  CAGR% | totRet% | maxDD% | Shrp |  MAR | win% |   PF | hold  | exit-reason mix
+  baseline (n_sig=545)    50 |  +13.0 |   +84.3 |  -31.9 |  0.61 |  0.41 | 28.0 |  2.32 | 15.3d  | disaster=29,expiry=11,sigma_target=10
+
+[BOUNCE-ONLY F2 SWEEP (no baseline included)]
+  config         trades |  CAGR% | totRet% | maxDD% | Shrp |  MAR | win% |   PF | hold  | exit-reason mix
+  bounce reclaim>=0.05 (n_sig=181)    59 |   -1.0 |    -5.1 |  -37.3 |  0.02 | -0.03 | 28.8 |  2.24 | 16.3d  | disaster=31,expiry=20,sigma_target=8
+  bounce reclaim>=0.10 (n_sig=169)    59 |   -6.8 |   -29.6 |  -45.3 | -0.30 | -0.15 | 28.8 |  1.79 | 15.2d  | disaster=32,expiry=19,sigma_target=8
+  bounce reclaim>=0.20 (n_sig=140)    53 |   -1.6 |    -7.6 |  -32.3 |  0.02 | -0.05 | 24.5 |  1.82 | 15.4d  | disaster=31,expiry=14,sigma_target=8
+  bounce reclaim>=0.30 (n_sig=103)    46 |   -6.9 |   -30.2 |  -46.5 | -0.32 | -0.15 | 17.4 |  0.94 | 15.3d  | disaster=28,expiry=10,sigma_target=8
+
+[COMBINED -- baseline UNION bounce (dedup by ticker+date)]
+  config         trades |  CAGR% | totRet% | maxDD% | Shrp |  MAR | win% |   PF | hold  | exit-reason mix
+  combined reclaim>=0.05 (n_sig=720)    67 |   +6.5 |   +37.1 |  -35.7 |  0.36 |  0.18 | 23.9 |  1.35 | 16.9d  | disaster=37,expiry=20,sigma_target=10
+  combined reclaim>=0.10 (n_sig=711)    65 |   -4.2 |   -19.3 |  -51.7 |  0.00 | -0.08 | 24.6 |  1.07 | 16.4d  | disaster=35,expiry=19,sigma_target=11
+  combined reclaim>=0.20 (n_sig=683)    61 |  +15.5 |  +105.4 |  -23.8 |  0.71 |  0.65 | 23.0 |  1.71 | 16.8d  | disaster=35,expiry=16,sigma_target=10
+  combined reclaim>=0.30 (n_sig=647)    63 |  +11.9 |   +75.6 |  -24.3 |  0.58 |  0.49 | 22.2 |  1.54 | 15.8d  | disaster=38,expiry=13,sigma_target=12
+
+[HEADLINE]
+  best PF   : baseline   PF 0.00  CAGR +13.0%  Sharpe 0.61  n=50
+  best CAGR : combined reclaim>=0.20 (n_sig=683)   PF 0.00  CAGR +15.5%  Sharpe 0.71  n=61

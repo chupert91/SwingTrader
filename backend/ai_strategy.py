@@ -49,7 +49,31 @@ RV_LOOKBACK = 20
 MIN_AVG_DOLLAR_VOL_M = 50.0
 STALE_BARS = 5
 
-_TIER_RANK = {"PRIME": 0, "OK": 1, "PANIC": 2, "WEAK": 3, "?": 4}
+# Bounce-confirm tier-promotion. The user's chart-eye pattern: a name
+# already in the primary band [-2.5,-2.0] that has bounced off structural
+# support with a turning Stoch RSI -- broad-market breadth irrelevant.
+# Five features, all must be true to promote a WEAK candidate to BOUNCE:
+#   F1 in primary band               (caller already checked z in band)
+#   F2 z reclaim                     z_today >= 20b z-min + BOUNCE_RECLAIM_SIGMA
+#   F3 higher low (252d)             min(low, last 20b) > min(low, prior 232b)
+#   F4 Stoch RSI bottoming           %K <= 30 AND %K > 20b min(%K) + STOCH_TURN_MIN
+#   F5 support confluence            >= 5 prior bars with low within +/- 2%
+#                                    of the recent 20b low
+# Calibrated by research/bounce_confirm_sweep.py on the volatile universe
+# with R6 exits (5y): the combined "baseline UNION bounce reclaim>=0.20σ"
+# config returned CAGR +15.5% vs baseline +13.0%, Sharpe 0.71 vs 0.61,
+# MaxDD -23.8% vs -31.9%, MAR 0.65 vs 0.41 (PF 1.71 vs 2.32 -- the
+# bounce trades pull at a lower ratio but lift risk-adjusted return).
+BOUNCE_LOOKBACK = 20
+BOUNCE_RECLAIM_SIGMA = 0.20
+BOUNCE_SUPPORT_PCT = 0.02
+BOUNCE_SUPPORT_HITS_MIN = 5
+BOUNCE_STOCH_OS_MAX = 30.0
+BOUNCE_STOCH_TURN_MIN = 1.0
+
+# BOUNCE ranks below PANIC (which still wins capital) but above WEAK so
+# the bot will trade it. Sort order PRIME > OK > PANIC > BOUNCE > WEAK > ?
+_TIER_RANK = {"PRIME": 0, "OK": 1, "PANIC": 2, "BOUNCE": 3, "WEAK": 4, "?": 5}
 
 
 def _log_channel_sd(closes: np.ndarray, window: int = WINDOW):
@@ -106,6 +130,75 @@ def tier_for(breadth: int) -> str:
     if breadth >= 1:
         return "WEAK"
     return "?"
+
+
+def _bounce_features(sd: np.ndarray, lows: np.ndarray,
+                     k_arr: np.ndarray) -> dict:
+    """Compute the 5 bounce-confirm features at the LAST bar of the
+    arrays. Returns the feature booleans + the underlying numbers for
+    transparency in the AI UI. The caller has already verified F1 (z is
+    in the primary band) by selecting the candidate in scan_candidates."""
+    out = {
+        "f1_in_band": True,                # caller verified
+        "f2_reclaim_sigma": False,
+        "f3_higher_low_252d": False,
+        "f4_stoch_turning": False,
+        "f5_support_hits": 0,
+        "f5_support_confluence": False,
+        "recent_z_min_20b": None,
+        "reclaim_from_min": None,
+        "recent_low_20b": None,
+        "prior_low_252b": None,
+        "stoch_k_min_20b": None,
+        "bounce_confirm": False,
+    }
+    n = len(sd)
+    LB = BOUNCE_LOOKBACK
+    if n < WINDOW + LB + 2:
+        return out
+
+    z_today = float(sd[-1])
+    recent_z_window = sd[-LB:]
+    if np.all(np.isnan(recent_z_window)):
+        return out
+    recent_z_min = float(np.nanmin(recent_z_window))
+    out["recent_z_min_20b"] = round(recent_z_min, 2)
+    reclaim = z_today - recent_z_min
+    out["reclaim_from_min"] = round(reclaim, 2)
+    out["f2_reclaim_sigma"] = reclaim >= BOUNCE_RECLAIM_SIGMA
+
+    recent_low = float(np.nanmin(lows[-LB:]))
+    prior_lows = lows[-WINDOW:-LB]
+    if len(prior_lows) > 0:
+        prior_low = float(np.nanmin(prior_lows))
+        out["recent_low_20b"] = round(recent_low, 2)
+        out["prior_low_252b"] = round(prior_low, 2)
+        out["f3_higher_low_252d"] = bool(recent_low > prior_low)
+        band_lo = recent_low * (1.0 - BOUNCE_SUPPORT_PCT)
+        band_hi = recent_low * (1.0 + BOUNCE_SUPPORT_PCT)
+        hits = int(((prior_lows >= band_lo) & (prior_lows <= band_hi)).sum())
+        out["f5_support_hits"] = hits
+        out["f5_support_confluence"] = hits >= BOUNCE_SUPPORT_HITS_MIN
+
+    if k_arr is not None and len(k_arr) >= LB:
+        k_today = k_arr[-1]
+        k_window = k_arr[-LB:]
+        if np.isfinite(k_today) and not np.all(np.isnan(k_window)):
+            k_min = float(np.nanmin(k_window))
+            out["stoch_k_min_20b"] = round(k_min, 1)
+            out["f4_stoch_turning"] = bool(
+                k_today <= BOUNCE_STOCH_OS_MAX
+                and k_today > k_min + BOUNCE_STOCH_TURN_MIN
+            )
+
+    out["bounce_confirm"] = bool(
+        out["f1_in_band"]
+        and out["f2_reclaim_sigma"]
+        and out["f3_higher_low_252d"]
+        and out["f4_stoch_turning"]
+        and out["f5_support_confluence"]
+    )
+    return out
 
 
 def scan_candidates(
@@ -192,6 +285,11 @@ def scan_candidates(
         first_touch = bool(sd[-2] > band_hi and sd[-1] <= band_hi)
         price = float(closes[-1])
         reversion_pct = (center_px / price - 1.0) * 100.0
+        # Bounce-confirm features (always computed, attached for UI). The
+        # tier-promotion (WEAK -> BOUNCE) happens after breadth is known.
+        lows = df["low"].to_numpy(dtype=float)
+        k_arr = k_ser.to_numpy(dtype=float) if len(k_ser) else np.array([])
+        bounce = _bounce_features(sd, lows, k_arr)
         pending.append({
             "ticker": tk,
             "price": round(price, 2),
@@ -208,12 +306,24 @@ def scan_candidates(
             "avg_dollar_vol_m": round(adv_m, 1),
             "stoch_rsi_k": round(k_last, 1) if k_last is not None else None,
             "stoch_oversold": is_os,
+            "bounce": bounce,
         })
 
     for c in pending:
         b = int(breadth.get(c["_touch_date"], 0))
         c["same_day_breadth"] = b
-        c["tier"] = tier_for(b)
+        base_tier = tier_for(b)
+        # Tier-promote WEAK / ? candidates to BOUNCE when the 5-feature
+        # chart-eye bounce pattern fires. Validated by
+        # research/bounce_confirm_sweep.py (combined-0.20 beats baseline
+        # on CAGR / Sharpe / MaxDD / MAR; PF drops). PRIME/OK/PANIC are
+        # already eligible and keep their (higher-ranking) tier so the
+        # broad-market breadth edge still wins same-day capital competition.
+        if base_tier in ("WEAK", "?") and c["bounce"]["bounce_confirm"]:
+            c["tier"] = "BOUNCE"
+            c["tier_promoted_from"] = base_tier
+        else:
+            c["tier"] = base_tier
         del c["_touch_date"]
 
     # "prefer" inserts an oversold-first key directly under the tier rank so
