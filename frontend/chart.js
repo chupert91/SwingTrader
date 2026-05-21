@@ -3,6 +3,8 @@ const COLORS = {
   down: "#ef5350",
   reg: "#ffffff",
   band: "#7d8590",
+  logReg: "#e8a13a",
+  logBand: "#b9822f",
   grid: "#1f242c",
   text: "#8b949e",
   tenkan: "#3498db",
@@ -297,6 +299,20 @@ const overlaySeries = {
   lower_3sd: addLine(priceChart, COLORS.band, 1.5),
 };
 
+// LOG-price regression channel — the model the AI trader signals on. Drawn
+// in amber so it reads as a distinct overlay against the white/gray linear
+// channel; for a stock that has moved multiplicatively the two diverge.
+// Single on/off toggle (display.regression.log), default off.
+const logOverlaySeries = {
+  log_regression_line: addLine(priceChart, COLORS.logReg, 2),
+  log_upper_1sd: addLine(priceChart, COLORS.logBand, 1, LightweightCharts.LineStyle.Dotted),
+  log_lower_1sd: addLine(priceChart, COLORS.logBand, 1, LightweightCharts.LineStyle.Dotted),
+  log_upper_2sd: addLine(priceChart, COLORS.logBand, 1, LightweightCharts.LineStyle.Dashed),
+  log_lower_2sd: addLine(priceChart, COLORS.logBand, 1, LightweightCharts.LineStyle.Dashed),
+  log_upper_3sd: addLine(priceChart, COLORS.logBand, 1.5),
+  log_lower_3sd: addLine(priceChart, COLORS.logBand, 1.5),
+};
+
 const ichimokuSeries = {
   tenkan: addLine(priceChart, COLORS.tenkan, 1.5),
   kijun: addLine(priceChart, COLORS.kijun, 1.5),
@@ -441,6 +457,9 @@ function renderChart(data) {
   volumeBuySeries.setData(data.volume_buy);
   volumeProfile.setData(data.volume_profile || null);
   for (const [key, series] of Object.entries(overlaySeries)) {
+    series.setData(data.overlays[key] || []);
+  }
+  for (const [key, series] of Object.entries(logOverlaySeries)) {
     series.setData(data.overlays[key] || []);
   }
   const ov = data.overlays || {};
@@ -1138,7 +1157,7 @@ priceChart.subscribeClick(param => {
 const DISPLAY_KEY = "swingtrader.display";
 const DISPLAY_DEFAULTS = {
   ichimoku: { tenkan: false, kijun: false, cloud: true, chikou: false },
-  regression: { line: true, sd1: true, sd2: true, sd3: true },
+  regression: { line: true, sd1: true, sd2: true, sd3: true, log: false },
   volume: { bars: true, profile: false },
 };
 
@@ -1184,6 +1203,10 @@ function applyDisplay() {
   goldZone.setVisible(display.regression.sd2);
   overlaySeries.upper_3sd.applyOptions({ visible: display.regression.sd3 });
   overlaySeries.lower_3sd.applyOptions({ visible: display.regression.sd3 });
+  // Log-price channel — single on/off overlay (the AI trader's model).
+  for (const s of Object.values(logOverlaySeries)) {
+    s.applyOptions({ visible: display.regression.log });
+  }
   // Volume
   volumeTotalSeries.applyOptions({ visible: display.volume.bars });
   volumeBuySeries.applyOptions({ visible: display.volume.bars });

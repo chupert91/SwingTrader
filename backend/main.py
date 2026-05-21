@@ -18,7 +18,9 @@ from pydantic import BaseModel
 
 from backend import backtest, ichimoku, indicator_registry, kv, scheduler, state, watchlist
 from backend.alert_engine import AlertRule
-from backend.channels import REGRESSION_WINDOW, SIGMA_LEVELS, compute_channels
+from backend.channels import (
+    REGRESSION_WINDOW, SIGMA_LEVELS, compute_channels, compute_log_channel,
+)
 from backend.data import fetch_bars, fetch_ticker_name
 from backend.volume import split_volume
 from backend.volume_profile import compute_profile
@@ -68,7 +70,8 @@ def _prepare(ticker: str, period: str) -> pd.DataFrame:
     df = fetch_bars(ticker, period=period)
     if df.empty:
         raise HTTPException(status_code=404, detail=f"No data for ticker '{ticker}'")
-    return compute_channels(df, window=REGRESSION_WINDOW)
+    df = compute_channels(df, window=REGRESSION_WINDOW)
+    return compute_log_channel(df, window=REGRESSION_WINDOW)
 
 
 @app.get("/api/chart/{ticker}")
@@ -620,6 +623,11 @@ def _serialize(df: pd.DataFrame, ticker: str, ichi: ichimoku.IchimokuComponents)
             overlays[f"lower_{k}sd"] = _line(times, df[f"lower_{k}sd"])
         overlays["upper_2_5sd"] = _line(times, df["upper_2_5sd"])
         overlays["lower_2_5sd"] = _line(times, df["lower_2_5sd"])
+    if "log_regression_line" in df.columns and df["log_regression_line"].notna().any():
+        overlays["log_regression_line"] = _line(times, df["log_regression_line"])
+        for k in SIGMA_LEVELS:
+            overlays[f"log_upper_{k}sd"] = _line(times, df[f"log_upper_{k}sd"])
+            overlays[f"log_lower_{k}sd"] = _line(times, df[f"log_lower_{k}sd"])
 
     ichi_payload = _ichimoku_payload(times, ichi, shift=ICHIMOKU_SHIFT)
 

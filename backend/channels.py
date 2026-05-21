@@ -69,3 +69,50 @@ def _channel_columns() -> list[str]:
     cols += ["upper_2_5sd", "lower_2_5sd"]
     cols += ["sd_position", "slope", "r_squared"]
     return cols
+
+
+def compute_log_channel(df: pd.DataFrame, window: int = REGRESSION_WINDOW) -> pd.DataFrame:
+    """Add the LOG-price 252d regression channel as new columns.
+
+    Same regression as compute_channels, but fit on log(close): a steady
+    multiplicative trend becomes a straight line and the bands are
+    constant-percent rather than constant-dollar. This is the frame the AI
+    trader signals on (ai_strategy._log_channel_sd). Band columns are
+    exp()'d back into price space so the chart can draw them on the price
+    axis. For a stock that has moved several-fold the log and linear
+    channels diverge sharply, so the chart can show both.
+
+    Adds: log_regression_line, log_upper_1sd/lower_1sd, log_upper_2sd/
+    lower_2sd, log_upper_3sd/lower_3sd. All NaN if the window isn't full or
+    any close is non-positive (log undefined).
+    """
+    out = df.copy()
+    n = len(out)
+    closes = out["close"].to_numpy(dtype=float)
+    if n < window or not np.all(np.isfinite(closes)) or np.any(closes <= 0):
+        for col in _log_channel_columns():
+            out[col] = np.nan
+        return out
+
+    y = np.log(closes[-window:])
+    x = np.arange(window, dtype=float)
+    slope, intercept = np.polyfit(x, y, 1)
+    sigma = float((y - (slope * x + intercept)).std(ddof=1))
+
+    # Project the fit across the whole frame (same as compute_channels), then
+    # map every band back to price space with exp().
+    full_x = np.arange(n, dtype=float) - (n - window)
+    full_fit = slope * full_x + intercept
+
+    out["log_regression_line"] = np.exp(full_fit)
+    for k in SIGMA_LEVELS:
+        out[f"log_upper_{k}sd"] = np.exp(full_fit + k * sigma)
+        out[f"log_lower_{k}sd"] = np.exp(full_fit - k * sigma)
+    return out
+
+
+def _log_channel_columns() -> list[str]:
+    cols = ["log_regression_line"]
+    for k in SIGMA_LEVELS:
+        cols += [f"log_upper_{k}sd", f"log_lower_{k}sd"]
+    return cols
