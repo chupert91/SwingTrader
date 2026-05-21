@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0e1117" />
+  <title>Trisigma — Options</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body class="page-backtest">
+  <header class="topbar">
+    <div class="brand">Trisigma</div>
+    <a class="topbar-link" href="/">← Back to chart</a>
+    <a class="topbar-link" href="/scanner.html">Scanner</a>
+    <a class="topbar-link" href="/settings.html">Settings</a>
+    <a class="topbar-link" href="/backtest.html">Backtest</a>
+    <a class="topbar-link" href="/ai.html">AI</a>
+    <div class="bt-page-title">Options</div>
+  </header>
+  <main class="bt-main opt-main">
+
+    <section class="bt-panel">
+      <h2 class="bt-panel-title">Contract</h2>
+      <form id="opt-ticker-form" class="opt-ticker-form">
+        <input id="opt-ticker" type="text" value="NVDA" autocomplete="off" spellcheck="false"
+               aria-label="Ticker" />
+        <button type="submit" class="ai-btn">Load chain</button>
+      </form>
+      <div id="opt-config-warn" class="ai-warn" hidden>
+        Alpaca credentials are not configured — option chains cannot be
+        fetched. Set ALPACA_API_KEY / ALPACA_SECRET_KEY.
+      </div>
+      <div id="opt-meta" class="opt-meta">Enter a ticker to load its option chain.</div>
+      <div class="opt-controls" id="opt-controls" hidden>
+        <label class="opt-field">
+          <span>Expiration</span>
+          <select id="opt-expiration"></select>
+        </label>
+        <label class="opt-field">
+          <span>Contracts</span>
+          <input id="opt-qty" type="number" min="1" step="1" value="1" />
+        </label>
+      </div>
+    </section>
+
+    <section class="bt-panel" id="opt-model-panel" hidden>
+      <h2 class="bt-panel-title">
+        Payoff Diagram
+        <span class="ai-sub" id="opt-contract-label">—</span>
+      </h2>
+      <p class="bt-hint">
+        Pick a strike from the chain — a call on the left, a put on the right.
+        The diagram shows profit / loss of that single long option versus the
+        underlying price. Dashed line = value at expiration (intrinsic only);
+        solid line = modeled value at the slider date, priced with
+        Black-Scholes at the implied vol backed out of the current mid. Quotes
+        are Alpaca's free indicative feed (delayed); pricing is European-style.
+      </p>
+      <div class="opt-workspace">
+        <div class="opt-chain-wrap">
+          <div class="opt-chain-title">
+            <span class="opt-chain-calls">Calls</span>
+            <span class="opt-chain-mid">Strike</span>
+            <span class="opt-chain-puts">Puts</span>
+          </div>
+          <div class="opt-chain-head">
+            <span>Delta</span><span>Mid</span><span>Strike</span><span>Mid</span><span>Delta</span>
+          </div>
+          <div class="opt-chain" id="opt-chain"></div>
+        </div>
+        <div class="opt-chart-col">
+          <div id="opt-chart" class="opt-chart"></div>
+          <div class="opt-time-row">
+            <span class="opt-time-end">Now</span>
+            <input id="opt-time" type="range" min="0" max="1" step="1" value="0" />
+            <span class="opt-time-end">Expiry</span>
+          </div>
+          <div class="opt-time-label" id="opt-time-label">—</div>
+          <div class="opt-legend">
+            <span class="opt-legend-item"><i class="opt-sw-now"></i>Value at slider date</span>
+            <span class="opt-legend-item"><i class="opt-sw-exp"></i>Value at expiration</span>
+            <span class="opt-legend-item"><i class="opt-sw-spot"></i>Current price</span>
+          </div>
+        </div>
+      </div>
+      <div class="ai-tiles opt-tiles" id="opt-tiles"></div>
+    </section>
+
+  </main>
+  <script src="/options.js"></script>
+</body>
+</html>

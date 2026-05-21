@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import datetime as dt
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -455,6 +456,128 @@ def get_quote(ticker: str) -> dict:
     if result is None:
         raise HTTPException(status_code=404, detail="no recent trade")
     return {"ticker": ticker.upper(), **result, "source": "alpaca-iex"}
+
+
+# ---- Options payoff visualizer -------------------------------------------
+# Powers /options.html. Two read-only endpoints that wrap the Alpaca options
+# snapshot feed; all pricing math (Black-Scholes, payoff curves) runs in the
+# browser so the time slider can redraw without a round-trip.
+
+def _spot_price(ticker: str) -> tuple[float | None, str | None]:
+    """Latest price for an underlying: Alpaca IEX trade first, yfinance
+    last close as fallback (pre-market / illiquid names have no IEX print)."""
+    from backend import alpaca
+    try:
+        if alpaca.is_configured():
+            trade = alpaca.latest_trade(ticker)
+            if trade and trade.get("price"):
+                return float(trade["price"]), trade.get("timestamp")
+    except Exception as exc:  # noqa: BLE001 — fall through to yfinance
+        logger.info("spot via alpaca failed for %s: %s", ticker, exc)
+    df = fetch_bars(ticker, period="5d")
+    if not df.empty:
+        return float(df["close"].iloc[-1]), str(df["timestamp"].iloc[-1])
+    return None, None
+
+
+@app.get("/api/options/expirations/{ticker}")
+def get_option_expirations(ticker: str) -> dict:
+    """Available option expirations for an underlying, with days-to-expiry.
+
+    Returns {ticker, name, spot, asof, expirations:[{date, dte}]}.
+    """
+    from backend import alpaca_trading
+    if not alpaca_trading.is_configured():
+        raise HTTPException(status_code=503, detail="alpaca credentials not configured")
+    spot, asof = _spot_price(ticker)
+    if spot is None:
+        raise HTTPException(status_code=404, detail=f"no price for ticker '{ticker}'")
+    today = dt.date.today()
+    try:
+        dates = alpaca_trading.list_option_expirations(ticker, spot)
+    except alpaca_trading.AlpacaError as exc:
+        raise HTTPException(status_code=502, detail=f"alpaca error: {exc}")
+    expirations = []
+    for d in dates:
+        try:
+            dte = (dt.date.fromisoformat(d) - today).days
+        except ValueError:
+            continue
+        if dte >= 0:
+            expirations.append({"date": d, "dte": dte})
+    return {
+        "ticker": ticker.upper(),
+        "name": fetch_ticker_name(ticker),
+        "spot": spot,
+        "asof": asof,
+        "expirations": expirations,
+    }
+
+
+@app.get("/api/options/chain/{ticker}")
+def get_option_chain(ticker: str, expiration: str, type: str = "call") -> dict:
+    """Strike-by-strike snapshot for one expiration: mid price, IV, delta.
+
+    `type` is call|put. Strikes are scoped to a wide near-the-money window so
+    the payoff modeler has enough range on both sides of the current price.
+    """
+    from backend import alpaca_trading
+    if not alpaca_trading.is_configured():
+        raise HTTPException(status_code=503, detail="alpaca credentials not configured")
+    opt_type = "put" if str(type).lower().startswith("p") else "call"
+    try:
+        exp_date = dt.date.fromisoformat(expiration)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="expiration must be YYYY-MM-DD")
+    spot, asof = _spot_price(ticker)
+    if spot is None:
+        raise HTTPException(status_code=404, detail=f"no price for ticker '{ticker}'")
+    try:
+        snaps = alpaca_trading.option_chain_snapshots(
+            ticker, opt_type, expiration,
+            strike_gte=spot * 0.60,
+            strike_lte=spot * 1.45,
+        )
+    except alpaca_trading.AlpacaError as exc:
+        raise HTTPException(status_code=502, detail=f"alpaca error: {exc}")
+
+    contracts = []
+    for sym, snap in snaps.items():
+        parsed = alpaca_trading.parse_occ_symbol(sym)
+        if not parsed:
+            continue
+        quote = snap.get("latestQuote") or {}
+        trade = snap.get("latestTrade") or {}
+        greeks = snap.get("greeks") or {}
+        bid, ask, last = _f(quote.get("bp")), _f(quote.get("ap")), _f(trade.get("p"))
+        # Prefer the bid/ask midpoint; fall back to the last trade when one
+        # side of the market is missing (common on far-OTM strikes).
+        if bid and ask and bid > 0 and ask > 0:
+            mid = round((bid + ask) / 2, 4)
+        elif last and last > 0:
+            mid = last
+        else:
+            mid = None
+        contracts.append({
+            "symbol": sym,
+            "strike": parsed["strike"],
+            "bid": bid,
+            "ask": ask,
+            "last": last,
+            "mid": mid,
+            "iv": _f(snap.get("impliedVolatility")),
+            "delta": _f(greeks.get("delta")),
+        })
+    contracts.sort(key=lambda c: c["strike"])
+    return {
+        "ticker": ticker.upper(),
+        "type": opt_type,
+        "expiration": expiration,
+        "dte": (exp_date - dt.date.today()).days,
+        "spot": spot,
+        "asof": asof,
+        "contracts": contracts,
+    }
 
 
 @app.get("/api/summary/{ticker}")

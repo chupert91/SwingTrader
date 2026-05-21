@@ -213,6 +213,103 @@ def latest_option_quote(symbol: str) -> dict | None:
     return {"bid": float(bid) if bid is not None else None, "ask": float(ask)}
 
 
+# ---- OCC symbol parsing ---------------------------------------------------
+
+def parse_occ_symbol(symbol: str) -> dict | None:
+    """Decompose an OCC option symbol into its parts.
+
+    Layout is a fixed-width tail: <root><YYMMDD><C|P><strike x1000, 8 digits>,
+    e.g. NVDA260717C00235000 -> NVDA / 2026-07-17 / call / 235.0. The root is
+    variable length so we parse from the right. Returns
+    {"root", "expiration" (YYYY-MM-DD), "type" ("call"|"put"), "strike"} or
+    None if the symbol is too short / malformed.
+    """
+    s = (symbol or "").strip().upper()
+    if len(s) < 15 or not s[-8:].isdigit() or not s[-15:-9].isdigit():
+        return None
+    cp = s[-9]
+    if cp not in ("C", "P"):
+        return None
+    strike = int(s[-8:]) / 1000.0
+    yy, mm, dd = s[-15:-13], s[-13:-11], s[-11:-9]
+    return {
+        "root": s[:-15],
+        "expiration": f"20{yy}-{mm}-{dd}",
+        "type": "call" if cp == "C" else "put",
+        "strike": strike,
+    }
+
+
+def _options_snapshots(underlying: str, params: dict, max_pages: int = 6) -> dict:
+    """Fetch /v1beta1/options/snapshots/{underlying}, following next_page_token
+    up to max_pages. Returns {OCC symbol: snapshot dict}."""
+    out: dict = {}
+    token: str | None = None
+    for _ in range(max_pages):
+        p = dict(params)
+        if token:
+            p["page_token"] = token
+        res = _request(
+            DATA_BASE,
+            f"/v1beta1/options/snapshots/{underlying.upper()}?{urllib.parse.urlencode(p)}",
+        )
+        if not isinstance(res, dict):
+            break
+        out.update(res.get("snapshots") or {})
+        token = res.get("next_page_token")
+        if not token:
+            break
+    return out
+
+
+def list_option_expirations(underlying: str, spot: float) -> list[str]:
+    """Expirations (YYYY-MM-DD, ascending) that have live quotes on the
+    indicative feed.
+
+    Derived from the snapshot feed itself, NOT /v2/options/contracts metadata:
+    the metadata lists expirations the free indicative feed carries no data
+    for (e.g. some non-standard dailies), which would surface as an empty
+    chain when picked. A near-the-money strike band keeps the response small;
+    every expiration carries dense ATM strikes so the band still catches all.
+    """
+    snaps = _options_snapshots(underlying, {
+        "feed": OPTIONS_FEED,
+        "type": "call",
+        "strike_price_gte": f"{spot * 0.85:.2f}",
+        "strike_price_lte": f"{spot * 1.15:.2f}",
+        "limit": 1000,
+    })
+    exps = set()
+    for sym in snaps:
+        parsed = parse_occ_symbol(sym)
+        if parsed:
+            exps.add(parsed["expiration"])
+    return sorted(exps)
+
+
+def option_chain_snapshots(
+    underlying: str,
+    option_type: str,
+    expiration_date: str,
+    strike_gte: float,
+    strike_lte: float,
+) -> dict:
+    """Indicative-feed snapshots for ONE expiration of an underlying.
+
+    Returns {OCC symbol: snapshot dict}; each snapshot carries latestQuote /
+    latestTrade / greeks / impliedVolatility.
+    """
+    return _options_snapshots(underlying, {
+        "feed": OPTIONS_FEED,
+        "type": option_type,
+        "expiration_date_gte": expiration_date,
+        "expiration_date_lte": expiration_date,
+        "strike_price_gte": f"{strike_gte:.2f}",
+        "strike_price_lte": f"{strike_lte:.2f}",
+        "limit": 1000,
+    }, max_pages=3)
+
+
 __all__ = [
     "AlpacaError",
     "is_configured",
@@ -227,4 +324,7 @@ __all__ = [
     "close_position",
     "list_option_contracts",
     "latest_option_quote",
+    "parse_occ_symbol",
+    "list_option_expirations",
+    "option_chain_snapshots",
 ]
