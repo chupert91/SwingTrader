@@ -1,0 +1,45 @@
+DIVERGENCE x REGRESSION-WINDOW sweep on the volatile universe.
+Windows tested: (60, 100, 150, 252).  R6 exits everywhere.
+Universe: 102 tickers, 5y history.
+
+==============================================================================
+CALLS  (DIV+R6 union vs R6-only at each window; lb=60 divergence)
+==============================================================================
+  config         trades |  CAGR% | totRet% | maxDD% | Shrp |  MAR | win% |   PF | hold  | exit-reason mix
+  w= 60 R6-only (n_sig=1271)   159 |   +4.9 |   +27.2 |  -61.5 |  0.32 |  0.08 | 39.0 |  1.42 |  9.0d  | disaster=72,expiry=1,sigma_target=86
+  w= 60 DIV+R6 union (n_div=278, n_union=1535)   187 |  -14.0 |   -52.8 |  -86.4 |  0.11 | -0.16 | 36.9 |  1.08 |  8.2d  | disaster=89,expiry=1,sigma_target=97
+
+  w=100 R6-only (n_sig=1080)   127 |  +12.1 |   +76.8 |  -40.7 |  0.55 |  0.30 | 39.4 |  2.05 | 11.7d  | disaster=59,expiry=14,sigma_target=54
+  w=100 DIV+R6 union (n_div=367, n_union=1425)   146 |   +9.3 |   +55.9 |  -45.3 |  0.44 |  0.20 | 36.3 |  1.47 | 10.9d  | disaster=68,expiry=16,sigma_target=62
+
+  w=150 R6-only (n_sig=920)    98 |   -2.2 |   -10.6 |  -57.0 |  0.12 | -0.04 | 24.5 |  1.24 | 12.9d  | disaster=59,expiry=17,sigma_target=22
+  w=150 DIV+R6 union (n_div=383, n_union=1279)   122 |  +12.5 |   +79.8 |  -62.4 |  0.48 |  0.20 | 30.3 |  1.62 | 13.0d  | disaster=67,expiry=17,sigma_target=38
+
+  w=252 R6-only (n_sig=545)    50 |  +13.0 |   +84.3 |  -31.9 |  0.61 |  0.41 | 28.0 |  2.32 | 15.3d  | disaster=29,expiry=11,sigma_target=10
+  w=252 DIV+R6 union (n_div=310, n_union=842)    82 |  +18.6 |  +134.5 |  -23.2 |  0.80 |  0.80 | 34.1 |  3.01 | 16.4d  | disaster=43,expiry=16,sigma_target=23
+
+==============================================================================
+PUTS  (DIV-inside-bounce rsi>=2 gap=8 lb=25 vs R6-only at each window)
+==============================================================================
+  config         trades |  CAGR% | totRet% | maxDD% | Shrp |  MAR | win% |   PF | hold  | exit-reason mix
+  w= 60 R6-baseline-puts (n_sig=1250)   157 |   -0.6 |    -3.2 |  -52.5 |  0.11 | -0.01 | 36.9 |  0.92 |  9.8d  | disaster=66,expiry=4,sigma_target=87
+  w= 60 DIV-inside-bounce (n_sig=1) (no trades)
+
+  w=100 R6-baseline-puts (n_sig=967)   111 |   -4.0 |   -18.4 |  -40.1 | -0.04 | -0.10 | 27.9 |  0.74 | 12.5d  | disaster=55,expiry=17,sigma_target=39
+  w=100 DIV-inside-bounce (n_sig=25)    16 |   -1.5 |    -7.2 |  -37.4 |  0.06 | -0.04 | 43.8 |  1.53 | 14.9d  | disaster=8,sigma_target=8
+
+  w=150 R6-baseline-puts (n_sig=687)    94 |   -7.8 |   -33.5 |  -48.0 | -0.25 | -0.16 | 29.8 |  0.83 | 14.6d  | disaster=48,expiry=19,sigma_target=27
+  w=150 DIV-inside-bounce (n_sig=59)    33 |   -2.0 |    -9.6 |  -19.8 | -0.19 | -0.10 | 27.3 |  1.49 | 15.9d  | disaster=15,expiry=10,sigma_target=8
+
+  w=252 R6-baseline-puts (n_sig=461)    67 |   -5.6 |   -25.1 |  -41.9 | -0.12 | -0.13 | 22.4 |  0.82 | 18.0d  | disaster=34,expiry=22,sigma_target=11
+  w=252 DIV-inside-bounce (n_sig=51)    35 |   +5.7 |   +31.8 |  -14.0 |  0.54 |  0.40 | 40.0 |  3.10 | 18.1d  | disaster=14,expiry=10,sigma_target=11
+
+[CALLS HEADLINE -- best across all windows]
+  best PF : w=252 DIV+R6 union (n_div=310, n_union=842)   PF 3.01  CAGR +18.6%  Sharpe 0.80  MaxDD -23.2%  n=82
+  best CAGR : w=252 DIV+R6 union (n_div=310, n_union=842)   PF 3.01  CAGR +18.6%  Sharpe 0.80  MaxDD -23.2%  n=82
+  Reference (w=252 DIV+R6 union, prior result): PF 3.02  CAGR +19.2%  Sharpe 0.88  MaxDD -22.5%  n=83
+
+[PUTS HEADLINE -- best across all windows]
+  best PF : w=252 DIV-inside-bounce (n_sig=51)   PF 3.10  CAGR +5.7%  Sharpe 0.54  MaxDD -14.0%  n=35
+  best CAGR : w=252 DIV-inside-bounce (n_sig=51)   PF 3.10  CAGR +5.7%  Sharpe 0.54  MaxDD -14.0%  n=35
+  Reference (w=252 DIV-inside, prior result): PF 3.10  CAGR +5.7%  Sharpe 0.54  MaxDD -14.0%  n=35

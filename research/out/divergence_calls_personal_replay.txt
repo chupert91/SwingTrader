@@ -1,0 +1,68 @@
+DIV+R6 union CALLS personal-audit replay -- lb=60, RSI_DIV>=3.0, gap=8
+  LEG A: R6 baseline   z fresh cross into [-2.5,-2.0], breadth tier in ['OK', 'PANIC', 'PRIME'],
+         ADV>=50.0M$. Breadth computed over 102-ticker universe.
+  LEG B: bullish div   z in [-3.5,-1.0], new low (60b),
+         lower-low in price vs prior pivot (gap 8), RSI higher-low by >= 3.0.
+  Match if EITHER leg fires. STRICT = entry day; LOOSE = [-5, +1] td window.
+  Real call trades (deduped): 22.
+
+PER-TRADE TABLE
+  entry      tkr        z   rsi  Ra Rl Da Dl Ua Ul | DIV first-fail (strict)
+  R = R6 leg, D = DIV leg, U = UNION.  a=STRICT (entry day), l=LOOSE ([-5,+1]td)
+  2025-07-25 AMD    +2.80  76.7   . . . . .  .  | band
+  2025-07-30 PLTR   -0.64  66.5   . . . . .  .  | band
+  2025-08-06 MP     +2.71  74.9   . . . . .  .  | band
+  2025-08-06 NVTS   +0.82  42.5   . . . . .  .  | band
+  2025-08-13 BBAI   -0.48  40.8   . . . . .  .  | band
+  2025-08-21 TSLA   -0.26  47.2   . . . . .  .  | band
+  2025-08-21 IONQ   -0.97  39.4   . . . . .  .  | band
+  2025-08-25 TSLA   +0.15  60.9   . . . . .  .  | band
+  2025-08-25 MP     +1.93  64.0   . . . . .  .  | band
+  2025-08-27 IONQ   -0.67  52.6   . . . . .  .  | band
+  2025-09-10 TSLA   +0.24  57.8   . . . . .  .  | band
+  2025-09-12 PLTR   -0.86  60.7   . . . . .  .  | band
+  2025-09-18 PLTR   -0.70  64.2   . . . . .  .  | band
+  2025-10-02 MP     +0.65  54.3   . . . . .  .  | band
+  2025-10-02 NVDA   +1.08  65.6   . . . . .  .  | band
+  2025-10-02 PLTR   -0.52  67.8   . . . . .  .  | band
+  2025-10-28 TSLA   +1.37  60.6   . . . . .  .  | band
+  2025-11-04 PLTR   -0.78  54.2   . . . . .  .  | band
+  2025-11-04 HOOD   -0.33  49.9   . . . . .  .  | band
+  2025-11-11 DUOL   -2.81  23.1   . . . . .  .  | new_low
+  2025-11-18 MSTR   -2.71  30.7   . . . . .  .  | new_low
+  2025-11-24 SMCI   -2.44  31.3   . . . . .  .  | new_low
+
+MATCH RATES
+  R6 baseline,     STRICT (exact entry day) :  0/22 =   0.0%
+  R6 baseline,     LOOSE  [-5,+1] td window :  0/22 =   0.0%
+  Bullish DIV lb60, STRICT                  :  0/22 =   0.0%
+  Bullish DIV lb60, LOOSE                   :  0/22 =   0.0%
+  UNION (either),   STRICT                  :  0/22 =   0.0%
+  UNION (either),   LOOSE                   :  0/22 =   0.0%
+
+DIV-leg FIRST-FAILING GATE COUNTS (n trades div didn't fire, by reason)
+  band        : 19
+  new_low     : 3
+
+Z AT USER'S CALL-ENTRY DAY -- distribution
+  z < -3.5                                          0  
+  -3.5 .. -2.5                                      2  ##
+  -2.5 .. -2.0  <- R6 baseline band                 1  #
+  -2.0 .. -1.5                                      0  
+  -1.5 .. -1.0  (still in 1-sigma DIV band)         0  
+  -1.0 .. -0.5                                      7  #######
+  -0.5 .. 0                                         3  ###
+  0 .. +0.5                                         2  ##
+  z > +0.5                                          7  #######
+  median z at call entry: -0.33
+  trades w/ z <= -1.0 (in DIV wide band): 3 / 22
+  trades w/ z <= -2.0 (in R6 band)      : 3 / 22
+
+OUTCOMES BY MATCH BUCKET (STRICT, union)
+  ALL CALL TRADES           n=22  WR  77.3%  total $+3,723  PF 1.67  exp $+169/trade  median ret +20.0%  med-hold 6d
+  MATCHED (union fired)     n=0
+  UNMATCHED (no signal)     n=22  WR  77.3%  total $+3,723  PF 1.67  exp $+169/trade  median ret +20.0%  med-hold 6d
+
+OUTCOMES BY MATCH BUCKET (LOOSE, union)
+  MATCHED (union fired)     n=0
+  UNMATCHED (no signal)     n=22  WR  77.3%  total $+3,723  PF 1.67  exp $+169/trade  median ret +20.0%  med-hold 6d

@@ -72,6 +72,14 @@ DEFAULT_SETTINGS: dict = {
     #   "require" - drop names whose %K > stoch_oversold_max
     "stoch_rsi_mode": "off",
     "stoch_oversold_max": 30.0,  # %K <= this counts as oversold
+    # DIV leg (bullish RSI divergence at z in [-3.5,-1.0], lb=60). Adds
+    # firings outside the primary [-2.5,-2.0] band gated by a divergence
+    # pattern. Union with R6 baseline returned PF 3.01 / +18.6% CAGR /
+    # -23.2% MaxDD / n=82 vs baseline 2.32 / +13.0% / -31.9% / n=50 on
+    # the volatile universe (research/divergence_sweep.py +
+    # research/divergence_window_sweep.py). Ships ON; flip to false to
+    # revert to primary+deep+bounce only.
+    "divergence_enabled": True,
     # ---- PUTS SLEEVE (separate kill switch, separate capital frame) ----
     # Defaults track research/out/bounce_confirm_puts_tune.txt "tuned-PF":
     # PF 2.53, CAGR +4.5%, MaxDD -17.1%, n=32 / 5y on the volatile universe.

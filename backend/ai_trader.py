@@ -444,6 +444,7 @@ def _run_entries(settings: dict, account: dict, max_new: int,
         candidates = ai_strategy.scan_candidates(
             stoch_mode=str(settings.get("stoch_rsi_mode", "off")),
             stoch_oversold_max=float(settings.get("stoch_oversold_max", 30.0)),
+            divergence_enabled=bool(settings.get("divergence_enabled", True)),
         )
     except Exception as exc:
         logger.exception("scan failed")

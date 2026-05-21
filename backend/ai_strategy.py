@@ -30,10 +30,14 @@ import numpy as np
 import pandas as pd
 
 from backend.data import fetch_bars_bulk
-from backend.indicators import stoch_rsi
+from backend.indicators import rsi, stoch_rsi
 from backend.volatile_universe import universe as _scan_universe
 
 WINDOW = 252
+# Calls scanner fetch period. Bumped from 14mo to 18mo so we always have
+# WINDOW (252) + DIV_LOOKBACK (60) + 2 = 314 trading days for the
+# bullish-divergence prior-pivot search. 18mo ~ 378 td.
+CALLS_FETCH_PERIOD = "18mo"
 # Primary "sweet spot" band — the validated mean-reversion edge.
 SWEET_LO = -2.5
 SWEET_HI = -2.0
@@ -71,9 +75,33 @@ BOUNCE_SUPPORT_HITS_MIN = 5
 BOUNCE_STOCH_OS_MAX = 30.0
 BOUNCE_STOCH_TURN_MIN = 1.0
 
-# BOUNCE ranks below PANIC (which still wins capital) but above WEAK so
-# the bot will trade it. Sort order PRIME > OK > PANIC > BOUNCE > WEAK > ?
-_TIER_RANK = {"PRIME": 0, "OK": 1, "PANIC": 2, "BOUNCE": 3, "WEAK": 4, "?": 5}
+# BOUNCE / DIV rank below PANIC (which still wins capital) but above WEAK
+# so the bot will trade them. DIV slots right after BOUNCE -- both are
+# chart-pattern signals without broad-market confirmation, comparable
+# standalone PF (~1.7); BOUNCE keeps precedence on collision since the
+# 5-feature pattern is the older, more validated of the two.
+# Sort order: PRIME > OK > PANIC > BOUNCE > DIV > WEAK > ?
+_TIER_RANK = {"PRIME": 0, "OK": 1, "PANIC": 2, "BOUNCE": 3, "DIV": 4, "WEAK": 5, "?": 6}
+
+# ---- DIV LEG (DIV+R6 union, lb=60) ---------------------------------------
+# Bullish RSI(14) regular divergence at the wider "outside 1 sigma" band.
+# Validated by research/divergence_sweep.py + research/divergence_window_sweep.py
+# on the volatile universe (5y). The DIV+R6 UNION at lb=60 returned
+#   PF 3.01, CAGR +18.6%, Sharpe 0.80, MaxDD -23.2%, n=82
+# vs R6-only at PF 2.32 / +13.0% / -31.9% / n=50. The union ADDS firings
+# in the (-3.5, -2.5) dead zone and the (-2.0, -1.0) shallow-oversold zone
+# that the primary/deep band excludes -- but only when the divergence
+# pattern fires, which kept the wider band from polluting the candidate
+# pool. The DIV-only standalone (no R6 baseline) was much weaker
+# (PF 1.71 / -2.2% CAGR), so DIV is shipped strictly as an UNION addition.
+# Shorter regression windows blow up; 252d is the sweet spot
+# (see research_252d_window_sweet_spot memory).
+DIV_BAND_LO = -3.5
+DIV_BAND_HI = -1.0
+DIV_LOOKBACK = 60                # bars back to search for the prior pivot
+DIV_PIVOT_GAP = 3                # min bars between current bar and prior pivot
+DIV_RSI_DIVERG_MIN = 3.0         # RSI[now] >= RSI[prior_pivot] + this
+DIV_RSI_PERIOD = 14
 
 # ---- PUTS SLEEVE ----------------------------------------------------------
 # Mirror of the call bounce_confirm pattern for the overbought side, with
@@ -219,30 +247,123 @@ def _bounce_features(sd: np.ndarray, lows: np.ndarray,
     return out
 
 
+def _bullish_divergence(sd: np.ndarray, lows: np.ndarray,
+                        rsi_arr: np.ndarray) -> dict:
+    """Compute bullish RSI(14) regular-divergence features at the LAST bar.
+
+    Pattern:
+      G1  z[-1] in [DIV_BAND_LO, DIV_BAND_HI] = [-3.5, -1.0]   (caller-checked)
+      G2  low[-1] is the lowest low in the last DIV_LOOKBACK bars
+      G3  prior pivot low = argmin(low) over the slice
+            [-DIV_LOOKBACK : -DIV_PIVOT_GAP]
+          AND low[-1] < low[prior_pivot]               (PRICE lower-low)
+      G4  RSI[-1] >= RSI[prior_pivot] + DIV_RSI_DIVERG_MIN
+                                                       (RSI HIGHER-low = div)
+
+    Returns the feature dict (always populated for UI transparency)
+    plus the boolean `div_fires`.
+    """
+    out = {
+        "div_fires": False,
+        "g2_new_low_60b": False,
+        "g3_lower_low_vs_pivot": False,
+        "g4_rsi_higher_low": False,
+        "recent_low_60b": None,
+        "prior_pivot_idx_offset": None,    # bars back from -1
+        "prior_pivot_low": None,
+        "prior_pivot_rsi": None,
+        "current_rsi": None,
+        "rsi_delta": None,                 # current - prior; positive = bullish div
+    }
+    n = len(sd)
+    LB = DIV_LOOKBACK
+    GAP = DIV_PIVOT_GAP
+    if n < WINDOW + LB + 2:
+        return out
+    if rsi_arr is None or len(rsi_arr) < n:
+        return out
+
+    # G2: new 60-bar low (ties allowed)
+    win_lows = lows[-LB:]
+    if np.all(np.isnan(win_lows)):
+        return out
+    recent_lo = float(np.nanmin(win_lows))
+    out["recent_low_60b"] = round(recent_lo, 2)
+    if not np.isfinite(lows[-1]) or lows[-1] > recent_lo + 1e-12:
+        return out
+    out["g2_new_low_60b"] = True
+
+    # G3: find the prior pivot low in [n-LB, n-GAP)
+    prior_start = n - LB
+    prior_end = n - GAP        # exclusive
+    if prior_end - prior_start < 2:
+        return out
+    prior_slice = lows[prior_start:prior_end]
+    if not np.any(np.isfinite(prior_slice)):
+        return out
+    prior_arg = int(np.nanargmin(prior_slice))
+    prior_idx = prior_start + prior_arg
+    prior_low = float(lows[prior_idx])
+    out["prior_pivot_idx_offset"] = (n - 1) - prior_idx
+    out["prior_pivot_low"] = round(prior_low, 2)
+    if not np.isfinite(prior_low) or lows[-1] >= prior_low:
+        return out
+    out["g3_lower_low_vs_pivot"] = True
+
+    # G4: RSI higher-low (bullish divergence proper)
+    ri = float(rsi_arr[-1])
+    rp = float(rsi_arr[prior_idx])
+    if not (np.isfinite(ri) and np.isfinite(rp)):
+        return out
+    out["current_rsi"] = round(ri, 1)
+    out["prior_pivot_rsi"] = round(rp, 1)
+    out["rsi_delta"] = round(ri - rp, 1)
+    if ri < rp + DIV_RSI_DIVERG_MIN:
+        return out
+    out["g4_rsi_higher_low"] = True
+
+    out["div_fires"] = True
+    return out
+
+
 def scan_candidates(
     *,
     stoch_mode: str = "off",
     stoch_oversold_max: float = 30.0,
     deep_threshold: float | None = DEEP_THRESHOLD,
+    divergence_enabled: bool = True,
 ) -> list[dict]:
-    """Ranked oversold-call candidates (HYBRID-band: primary + deep).
+    """Ranked oversold-call candidates (HYBRID-band: primary + deep + div).
 
-    Two signal sources, both eligible:
+    Three signal sources, all eligible (the third is opt-out via
+    divergence_enabled=False):
       PRIMARY band  z in [SWEET_LO, SWEET_HI] = [-2.5, -2.0]  — the
                     validated mean-reversion edge (PF 2.32 standalone).
       DEEP cross    z <= deep_threshold (default -3.5) AND the cross
                     just occurred — captures rare violent capitulations
                     (PF 6.91 standalone, n=19/5y). Pass deep_threshold=
                     None to disable the deep leg.
+      DIV (1-sigma) z in [DIV_BAND_LO, DIV_BAND_HI] = [-3.5, -1.0] AND
+                    bullish RSI(14) regular divergence at lb=60 (price
+                    lower-low vs. prior pivot, RSI higher-low by
+                    >= DIV_RSI_DIVERG_MIN). The UNION of DIV with the
+                    primary+deep baseline returned PF 3.01 / CAGR +18.6%
+                    / MaxDD -23.2% / n=82 vs baseline PF 2.32 / +13.0%
+                    / -31.9% / n=50 (research/divergence_sweep.py,
+                    research/divergence_window_sweep.py). DIV strictly
+                    adds firings outside the primary band -- collisions
+                    are resolved in favor of primary/deep (higher tier).
+                    Set divergence_enabled=False to disable.
 
     The DEAD ZONE (deep_threshold, SWEET_LO) = (-3.5, -2.5) is explicitly
-    NOT eligible (PF 1.04 / CAGR -18% in standalone testing — knife-
-    falling-through entries that stop short of true capitulation).
+    NOT eligible to PRIMARY/DEEP (PF 1.04 / CAGR -18% in standalone
+    testing). DIV CAN fire in the dead zone -- but only if the divergence
+    pattern is present, which is the whole point of the gate.
 
-    Each candidate carries a `source` field ("primary" or "deep"). They
-    share the same capital frame in ai_trader; the engine's tier rank
-    handles competition for slots so deep signals on broad-capitulation
-    days replace lower-tier primary candidates.
+    Each candidate carries a `source` field ("primary" | "deep" | "div").
+    They share the same capital frame in ai_trader; the engine's tier
+    rank handles competition for slots so deep / primary signals on
+    broad-capitulation days replace lower-tier DIV candidates.
 
     Breadth is the broad-market count of crossings into z <= SWEET_HI
     (-2.0) on the candidate's touch date — band-independent, so deep
@@ -256,7 +377,7 @@ def scan_candidates(
       - "require":  names with %K > stoch_oversold_max (or unknown %K) are
                    dropped entirely.
     """
-    bars = fetch_bars_bulk(_scan_universe(), period="14mo")
+    bars = fetch_bars_bulk(_scan_universe(), period=CALLS_FETCH_PERIOD)
     breadth: Counter = Counter()
     pending: list[dict] = []
 
@@ -275,22 +396,51 @@ def scan_candidates(
                 breadth[ts_dates[t]] += 1
 
         z = float(sd[-1])
-        # Band check: primary band [-2.5,-2.0] OR deep z<=deep_threshold.
-        # Dead zone (deep_threshold, SWEET_LO) is explicitly excluded.
+        # Band check (in precedence order):
+        #   PRIMARY  z in [-2.5, -2.0]
+        #   DEEP     z <= deep_threshold (default -3.5)
+        #   DIV      z in [-3.5, -1.0] AND bullish-divergence pattern fires
+        # The dead zone (-3.5, -2.5) is NOT eligible to PRIMARY/DEEP. DIV
+        # can fire there but only if the divergence pattern is present --
+        # the gate is precisely what kept this wider band tradeable in the
+        # backtest (DIV-only standalone was PF 1.71; DIV+R6 union PF 3.01).
         in_primary = SWEET_LO <= z <= SWEET_HI
         in_deep = deep_threshold is not None and z <= deep_threshold
-        if not (in_primary or in_deep):
+        div_eligible_zone = (
+            divergence_enabled
+            and not in_primary and not in_deep
+            and DIV_BAND_LO <= z <= DIV_BAND_HI
+        )
+        if not (in_primary or in_deep or div_eligible_zone):
             continue
-        source = "deep" if in_deep else "primary"
-        # Use the band-specific upper bound for the freshness/touch
-        # computation so the candidate's "bars_in_zone" reflects its
-        # entry into THIS band (e.g. a name that drops from -2.5 to -3.7
-        # has bars_in_zone=1 in the deep band even though it crossed -2
-        # weeks ago).
-        band_hi = deep_threshold if in_deep else SWEET_HI
+
         adv_m = _avg_dollar_vol_m(df)
         if adv_m < MIN_AVG_DOLLAR_VOL_M:
             continue
+
+        # Divergence features computed only for DIV-eligible candidates
+        # (rsi() is a few ms per ticker; gated to keep the scan fast).
+        div = None
+        lows = df["low"].to_numpy(dtype=float)
+        if div_eligible_zone:
+            rsi_arr = rsi(df["close"], period=DIV_RSI_PERIOD).to_numpy(dtype=float)
+            div = _bullish_divergence(sd, lows, rsi_arr)
+            if not div["div_fires"]:
+                continue
+
+        if in_primary or in_deep:
+            source = "deep" if in_deep else "primary"
+            # band_hi controls the freshness/touch computation so a name
+            # that drops from -2.5 to -3.7 has bars_in_zone=1 in the deep
+            # band even though it crossed -2 weeks ago.
+            band_hi = deep_threshold if in_deep else SWEET_HI
+        else:
+            source = "div"
+            # For DIV, the "band" the candidate just entered is the DIV
+            # band [-3.5, -1.0]; treat -1.0 as the upper bound so the
+            # freshness reflects entry into the broader 1-sigma zone.
+            band_hi = DIV_BAND_HI
+
         k_ser, _ = stoch_rsi(df["close"])
         k_last = float(k_ser.iloc[-1]) if len(k_ser) and not pd.isna(k_ser.iloc[-1]) else None
         is_os = k_last is not None and k_last <= stoch_oversold_max
@@ -305,14 +455,15 @@ def scan_candidates(
         reversion_pct = (center_px / price - 1.0) * 100.0
         # Bounce-confirm features (always computed, attached for UI). The
         # tier-promotion (WEAK -> BOUNCE) happens after breadth is known.
-        lows = df["low"].to_numpy(dtype=float)
+        # DIV candidates also get bounce features for transparency, but
+        # they're tier-stamped DIV regardless (no promotion needed).
         k_arr = k_ser.to_numpy(dtype=float) if len(k_ser) else np.array([])
         bounce = _bounce_features(sd, lows, k_arr)
         pending.append({
             "ticker": tk,
             "price": round(price, 2),
             "z_log": round(z, 2),
-            "source": source,             # "primary" | "deep"
+            "source": source,             # "primary" | "deep" | "div"
             "touch_date": str(touch_date),
             "_touch_date": touch_date,
             "first_touch": first_touch,
@@ -325,23 +476,31 @@ def scan_candidates(
             "stoch_rsi_k": round(k_last, 1) if k_last is not None else None,
             "stoch_oversold": is_os,
             "bounce": bounce,
+            "divergence": div,            # None for primary/deep; dict for div
         })
 
     for c in pending:
         b = int(breadth.get(c["_touch_date"], 0))
         c["same_day_breadth"] = b
-        base_tier = tier_for(b)
-        # Tier-promote WEAK / ? candidates to BOUNCE when the 5-feature
-        # chart-eye bounce pattern fires. Validated by
-        # research/bounce_confirm_sweep.py (combined-0.20 beats baseline
-        # on CAGR / Sharpe / MaxDD / MAR; PF drops). PRIME/OK/PANIC are
-        # already eligible and keep their (higher-ranking) tier so the
-        # broad-market breadth edge still wins same-day capital competition.
-        if base_tier in ("WEAK", "?") and c["bounce"]["bounce_confirm"]:
-            c["tier"] = "BOUNCE"
-            c["tier_promoted_from"] = base_tier
+        if c["source"] == "div":
+            # DIV candidates are tier-stamped DIV regardless of breadth.
+            # The pattern (bullish RSI divergence at lb=60) is the gate;
+            # broad-market breadth is informational only for these.
+            c["tier"] = "DIV"
         else:
-            c["tier"] = base_tier
+            base_tier = tier_for(b)
+            # Tier-promote WEAK / ? PRIMARY/DEEP candidates to BOUNCE when
+            # the 5-feature chart-eye bounce pattern fires. Validated by
+            # research/bounce_confirm_sweep.py (combined-0.20 beats
+            # baseline on CAGR / Sharpe / MaxDD / MAR; PF drops).
+            # PRIME/OK/PANIC are already eligible and keep their
+            # (higher-ranking) tier so the broad-market breadth edge still
+            # wins same-day capital competition.
+            if base_tier in ("WEAK", "?") and c["bounce"]["bounce_confirm"]:
+                c["tier"] = "BOUNCE"
+                c["tier_promoted_from"] = base_tier
+            else:
+                c["tier"] = base_tier
         del c["_touch_date"]
 
     # "prefer" inserts an oversold-first key directly under the tier rank so

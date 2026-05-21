@@ -32,22 +32,29 @@ function esc(s) {
 }
 function tierBadge(t) {
   // BOUNCE = chart-eye 5-feature pattern promoted a WEAK breadth candidate.
-  // See backend/ai_strategy._bounce_features + research/bounce_confirm_sweep.txt.
+  // DIV   = bullish RSI(14) divergence at z in [-3.5,-1.0], lb=60.
+  // See backend/ai_strategy._bounce_features + _bullish_divergence
+  // + research/{bounce_confirm_sweep,divergence_sweep,divergence_window_sweep}.txt.
   const cls = { PRIME: "t-prime", OK: "t-ok", PANIC: "t-panic",
-                BOUNCE: "t-bounce", WEAK: "t-weak" }[t] || "t-weak";
-  const title = t === "BOUNCE"
-    ? "Bounce-confirm: in band + reclaim>=0.20s + higher-low (252d) + stoch turning + support confluence"
-    : "";
+                BOUNCE: "t-bounce", DIV: "t-bounce", WEAK: "t-weak" }[t] || "t-weak";
+  const titles = {
+    BOUNCE: "Bounce-confirm: in band + reclaim>=0.20s + higher-low (252d) + stoch turning + support confluence",
+    DIV: "Bullish RSI(14) divergence: z in [-3.5,-1.0] + 60-bar lower-low in price + higher-low in RSI (>=3 pts)",
+  };
+  const title = titles[t] || "";
   return `<span class="ai-badge ${cls}" title="${title}">${esc(t || "?")}</span>`;
 }
-// Signal source: which band fired (primary [-2.5,-2.0] vs deep z<=-3.5).
-// Old pre-deploy trades have no source field — default to primary so the
-// row never renders blank.
+// Signal source: which band fired (primary [-2.5,-2.0] vs deep z<=-3.5
+// vs div [-3.5,-1.0] + bullish divergence). Old pre-deploy trades have no
+// source field — default to primary so the row never renders blank.
 function sourceBadge(src) {
-  const s = (src === "deep") ? "deep" : "primary";
-  const cls = (s === "deep") ? "src-deep" : "src-primary";
-  const label = (s === "deep") ? "DEEP" : "primary";
-  return `<span class="ai-badge ${cls}" title="${s === 'deep' ? 'Deep capitulation cross (z<=-3.5)' : 'Primary band [-2.5,-2.0]'}">${label}</span>`;
+  const map = {
+    deep: { cls: "src-deep", label: "DEEP", title: "Deep capitulation cross (z<=-3.5)" },
+    div:  { cls: "src-deep", label: "DIV",  title: "Bullish RSI divergence in 1-sigma band (z in [-3.5,-1.0], lb=60)" },
+    primary: { cls: "src-primary", label: "primary", title: "Primary band [-2.5,-2.0]" },
+  };
+  const m = map[src] || map.primary;
+  return `<span class="ai-badge ${m.cls}" title="${m.title}">${m.label}</span>`;
 }
 function reasonBadge(r) {
   const map = {

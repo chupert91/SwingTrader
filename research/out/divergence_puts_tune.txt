@@ -1,0 +1,40 @@
+DIV-inside-bounce PUTS tune -- Variant C, lookback fixed at 25.
+Sweep RSI_DIVERG_MIN x PIVOT_GAP = 4 x 3 = 12 cells.
+Band [2.0,2.5], resistance +/-2.0% >=5 bars,
+cooldown 20, R6 exits (no TP, sigma|<=0, $200 disaster, 45td, 5% OTM, 45 DTE).
+Universe: 102 tickers, full 252d history.
+
+[GRID  rows=RSI threshold, cols=pivot gap]
+  config         trades |  CAGR% | totRet% | maxDD% | Shrp |  MAR | win% |   PF | hold  | exit-reason mix
+  rsi>=2 gap=3 (n_sig=56)    38 |   +0.8 |    +3.9 |  -20.7 |  0.12 |  0.04 | 36.8 |  1.77 | 20.9d  | disaster=13,expiry=17,sigma_target=8
+  rsi>=2 gap=5 (n_sig=53)    36 |   -0.3 |    -1.5 |  -17.8 |  0.04 | -0.02 | 30.6 |  1.93 | 18.8d  | disaster=16,expiry=13,sigma_target=7
+  rsi>=2 gap=8 (n_sig=51)    35 |   +5.7 |   +31.8 |  -14.0 |  0.54 |  0.40 | 40.0 |  3.10 | 18.1d  | disaster=14,expiry=10,sigma_target=11
+  rsi>=3 gap=3 (n_sig=46)    35 |  +12.6 |   +80.9 |  -15.6 |  0.69 |  0.81 | 37.1 |  2.20 | 18.9d  | disaster=14,expiry=12,sigma_target=9
+  rsi>=3 gap=5 (n_sig=44)    34 |  +11.6 |   +72.8 |  -20.3 |  0.64 |  0.57 | 32.4 |  1.50 | 16.9d  | disaster=16,expiry=11,sigma_target=7
+  rsi>=3 gap=8 (n_sig=43)    33 |   +3.9 |   +20.9 |  -20.7 |  0.34 |  0.19 | 36.4 |  2.35 | 16.7d  | disaster=16,expiry=7,sigma_target=10
+  rsi>=5 gap=3 (n_sig=27)    22 |   -4.4 |   -20.0 |  -23.1 | -0.46 | -0.19 | 22.7 |  0.89 | 19.2d  | disaster=9,expiry=10,sigma_target=3
+  rsi>=5 gap=5 (n_sig=27)    21 |   -5.9 |   -26.3 |  -29.5 | -0.55 | -0.20 | 19.0 |  0.19 | 20.1d  | disaster=10,expiry=9,sigma_target=2
+  rsi>=5 gap=8 (n_sig=29)    25 |   -1.7 |    -8.3 |  -22.1 | -0.08 | -0.08 | 32.0 |  1.29 | 18.3d  | disaster=10,expiry=9,sigma_target=6
+  rsi>=7 gap=3 (n_sig=16)    16 |   -1.0 |    -4.9 |  -14.3 | -0.13 | -0.07 | 31.2 |  1.42 | 18.2d  | disaster=6,expiry=6,sigma_target=4
+  rsi>=7 gap=5 (n_sig=19)    17 |   -2.7 |   -12.8 |  -18.6 | -0.34 | -0.15 | 29.4 |  1.04 | 18.4d  | disaster=8,expiry=6,sigma_target=3
+  rsi>=7 gap=8 (n_sig=21)    20 |   -1.2 |    -5.9 |  -20.4 | -0.08 | -0.06 | 40.0 |  1.89 | 17.4d  | disaster=8,expiry=6,sigma_target=6
+
+[GRID SUMMARY -- PF / CAGR%/ MaxDD% / n]
+  rsi\gap | gap=3 | gap=5 | gap=8
+  rsi>= 2 | PF 1.77 C +0.8 DD-20.7 n 38 | PF 1.93 C -0.3 DD-17.8 n 36 | PF 3.10 C +5.7 DD-14.0 n 35
+  rsi>= 3 | PF 2.20 C+12.6 DD-15.6 n 35 | PF 1.50 C+11.6 DD-20.3 n 34 | PF 2.35 C +3.9 DD-20.7 n 33
+  rsi>= 5 | PF 0.89 C -4.4 DD-23.1 n 22 | PF 0.19 C -5.9 DD-29.5 n 21 | PF 1.29 C -1.7 DD-22.1 n 25
+  rsi>= 7 | PF 1.42 C -1.0 DD-14.3 n 16 | PF 1.04 C -2.7 DD-18.6 n 17 | PF 1.89 C -1.2 DD-20.4 n 20
+
+[HEADLINE]
+  best PF   : rsi>=2 gap=8 (n_sig=51)   PF 3.10  CAGR +5.7%  Sharpe 0.54  MaxDD -14.0%  MAR 0.40  n=35
+  best CAGR : rsi>=3 gap=3 (n_sig=46)   PF 2.20  CAGR +12.6%  Sharpe 0.69  MaxDD -15.6%  MAR 0.81  n=35
+  best MAR  : rsi>=3 gap=3 (n_sig=46)   PF 2.20  CAGR +12.6%  Sharpe 0.69  MaxDD -15.6%  MAR 0.81  n=35
+
+[GO/NO-GO -- shipped puts sleeve]
+  must clear: PF >= 2.53  AND  CAGR >= +4.5%  AND  MaxDD >= -17.1%
+  reference  : rsi>=3 gap=3 (the existing variant-C cell, lb=25)
+               PF 2.20  CAGR +12.6%  Sharpe 0.69  MaxDD -15.6%  n=35
+
+[QUALIFIERS -- cells that clear all three bars]
+  rsi>=2 gap=8: PF 3.10 CAGR +5.7% MaxDD -14.0% n=35

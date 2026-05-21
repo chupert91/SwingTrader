@@ -1,0 +1,73 @@
+DIV-PUTS personal-audit replay -- rsi>=2 gap=8 lb=25, Variant-C shell
+  band [+2.0, +2.5], resistance >=5 prior bars within +/-2%,
+  RSI_DIVERG_MIN=2.0 pts, PIVOT_GAP=8, cooldown 20b.
+  STRICT window: signal must fire on entry_date itself.
+  LOOSE  window: signal must fire in [entry-5d, entry+1d] trading days.
+  Real put trades (deduped): 18.
+
+PER-TRADE TABLE
+  entry      tkr        z   rsi  S L Sw Lw | strict first-fail | wide first-fail
+  S=STRICT band [+2.0,+2.5]   Sw=WIDE band [+1.0,+3.5]   L/Lw = +/- td window
+  2025-09-15 TSLA   +1.11  77.8   . . .  .  | band           | rsi_div
+  2025-09-17 IONQ   +0.66  83.2   . . .  .  | band           | band
+  2025-09-22 TSLA   +1.36  78.0   . . .  .  | band           | rsi_div
+  2025-09-23 PLTR   -0.55  66.3   . . .  .  | band           | band
+  2025-09-24 IONQ   +0.99  84.2   . . .  .  | band           | band
+  2025-09-26 IONQ   +0.72  68.0   . . .  .  | band           | band
+  2025-09-29 IONQ   +0.59  61.8   . . .  .  | band           | band
+  2025-09-30 TSLA   +1.37  70.5   . . .  .  | band           | new_high
+  2025-10-08 AMD    +2.50  86.0   . . .  .  | band           | rsi_div
+  2025-10-14 TSLA   +1.03  54.2   . . .  .  | band           | new_high
+  2025-10-14 MP     +1.63  77.9   . . .  .  | band           | rsi_div
+  2025-10-15 APLD   +2.54  89.1   . . .  .  | band           | rsi_div
+  2025-10-28 AMD    +2.13  73.6   . . .  .  | rsi_div        | rsi_div
+  2025-11-10 GOOG   +1.94  72.1   . . .  .  | band           | new_high
+  2025-11-10 AAPL   +1.70  64.9   . . .  .  | band           | new_high
+  2025-11-17 GOOG   +1.55  61.9   . . .  .  | band           | resistance
+  2025-11-25 NVDA   -0.47  41.5   . . .  .  | band           | band
+  2025-12-17 TSLA   +0.82  58.4   . . .  .  | band           | band
+
+MATCH RATES
+  STRICT band [+2.0,+2.5], exact entry day      :  0/18 =   0.0%
+  STRICT band, [-5,+1] td window               :  0/18 =   0.0%
+  WIDE   band [+1.0,+3.5], exact entry day      :  0/18 =   0.0%
+  WIDE   band, [-5,+1] td window               :  0/18 =   0.0%
+
+FIRST-FAILING GATE COUNTS (n trades that didn't fire, by reason)
+  STRICT band fail counts (n=18):
+    band        : 17
+    rsi_div     : 1
+  WIDE band fail counts (n=18):
+    band        : 7
+    new_high    : 4
+    rsi_div     : 6
+    resistance  : 1
+
+Z AT USER'S ENTRY DAY -- distribution
+  z < -1                          0  
+  -1 .. 0                         2  ##
+  0 .. +0.5                       0  
+  +0.5 .. +1.0                    5  #####
+  +1.0 .. +1.5                    4  ####
+  +1.5 .. +2.0                    4  ####
+  +2.0 .. +2.5  <- shipped band   1  #
+  +2.5+                           2  ##
+  median z at entry: +1.36
+  trades w/ z >= +2.0: 3 / 18
+
+OUTCOMES BY MATCH BUCKET
+  ALL PUT TRADES            n=18  WR  66.7%  total $+3,813  PF 3.80  exp $+212/trade  median ret +7.1%  med-hold 2d
+
+  -- STRICT split --
+  MATCHED (signal fired)    n=0
+  UNMATCHED (no signal)     n=18  WR  66.7%  total $+3,813  PF 3.80  exp $+212/trade  median ret +7.1%  med-hold 2d
+
+  -- LOOSE split --
+  MATCHED (signal fired)    n=0
+  UNMATCHED (no signal)     n=18  WR  66.7%  total $+3,813  PF 3.80  exp $+212/trade  median ret +7.1%  med-hold 2d
+
+READING
+  high MATCHED PF/WR vs UNMATCHED -> divergence selects the user's better trades
+  similar PF/WR                   -> divergence is orthogonal (catches different setups)
+  low MATCH rate                  -> bot would have skipped most of the user's puts
+    (informative either way: user trades a DIFFERENT regime than this signal)
