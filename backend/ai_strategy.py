@@ -84,20 +84,26 @@ BOUNCE_STOCH_TURN_MIN = 1.0
 _TIER_RANK = {"PRIME": 0, "OK": 1, "PANIC": 2, "BOUNCE": 3, "DIV": 4, "WEAK": 5, "?": 6}
 
 # ---- DIV LEG (DIV+R6 union, lb=60) ---------------------------------------
-# Bullish RSI(14) regular divergence at the wider "outside 1 sigma" band.
+# Bullish RSI(14) regular divergence, gated to GENUINELY oversold price.
 # Validated by research/divergence_sweep.py + research/divergence_window_sweep.py
-# on the volatile universe (5y). The DIV+R6 UNION at lb=60 returned
-#   PF 3.01, CAGR +18.6%, Sharpe 0.80, MaxDD -23.2%, n=82
-# vs R6-only at PF 2.32 / +13.0% / -31.9% / n=50. The union ADDS firings
-# in the (-3.5, -2.5) dead zone and the (-2.0, -1.0) shallow-oversold zone
-# that the primary/deep band excludes -- but only when the divergence
-# pattern fires, which kept the wider band from polluting the candidate
-# pool. The DIV-only standalone (no R6 baseline) was much weaker
-# (PF 1.71 / -2.2% CAGR), so DIV is shipped strictly as an UNION addition.
+# on the volatile universe (5y); the DIV+R6 union beat R6-only there. The
+# DIV-only standalone (no R6 baseline) was weak (PF 1.71 / -2.2% CAGR), so
+# DIV is shipped strictly as an UNION addition.
+#
+# DIV_BAND_HI was TIGHTENED -1.0 -> -2.0 (research/div_guardrail_sweep.py):
+# the original [-3.5, -1.0] band let DIV fire on barely-oversold price --
+# 205 of 337 DIV fires sat at z > -2.0, INSIDE the +/-2 sigma bands (the
+# LCID 2026-05-21 call, z -1.37, was one). That shallow sub-band was a net
+# drag. Raising the floor to -2.0 lifted the shipped calls config from
+# CAGR +19.2% / PF 3.02 / MaxDD -22.5% to +30.9% / 3.37 / -14.7%. With
+# band_hi -2.0 the DIV leg's unique contribution is divergence-gated entries
+# in the (-3.5, -2.5) DEAD ZONE (primary/deep exclude it; collisions inside
+# the primary band resolve in favour of primary). A slope/trend floor was
+# also tested and made it WORSE -- do not add one.
 # Shorter regression windows blow up; 252d is the sweet spot
 # (see research_252d_window_sweet_spot memory).
 DIV_BAND_LO = -3.5
-DIV_BAND_HI = -1.0
+DIV_BAND_HI = -2.0               # tightened from -1.0 (see div_guardrail_sweep)
 DIV_LOOKBACK = 60                # bars back to search for the prior pivot
 DIV_PIVOT_GAP = 3                # min bars between current bar and prior pivot
 DIV_RSI_DIVERG_MIN = 3.0         # RSI[now] >= RSI[prior_pivot] + this
@@ -252,7 +258,7 @@ def _bullish_divergence(sd: np.ndarray, lows: np.ndarray,
     """Compute bullish RSI(14) regular-divergence features at the LAST bar.
 
     Pattern:
-      G1  z[-1] in [DIV_BAND_LO, DIV_BAND_HI] = [-3.5, -1.0]   (caller-checked)
+      G1  z[-1] in [DIV_BAND_LO, DIV_BAND_HI] = [-3.5, -2.0]   (caller-checked)
       G2  low[-1] is the lowest low in the last DIV_LOOKBACK bars
       G3  prior pivot low = argmin(low) over the slice
             [-DIV_LOOKBACK : -DIV_PIVOT_GAP]
@@ -343,16 +349,16 @@ def scan_candidates(
                     just occurred — captures rare violent capitulations
                     (PF 6.91 standalone, n=19/5y). Pass deep_threshold=
                     None to disable the deep leg.
-      DIV (1-sigma) z in [DIV_BAND_LO, DIV_BAND_HI] = [-3.5, -1.0] AND
+      DIV          z in [DIV_BAND_LO, DIV_BAND_HI] = [-3.5, -2.0] AND
                     bullish RSI(14) regular divergence at lb=60 (price
                     lower-low vs. prior pivot, RSI higher-low by
-                    >= DIV_RSI_DIVERG_MIN). The UNION of DIV with the
-                    primary+deep baseline returned PF 3.01 / CAGR +18.6%
-                    / MaxDD -23.2% / n=82 vs baseline PF 2.32 / +13.0%
-                    / -31.9% / n=50 (research/divergence_sweep.py,
-                    research/divergence_window_sweep.py). DIV strictly
-                    adds firings outside the primary band -- collisions
-                    are resolved in favor of primary/deep (higher tier).
+                    >= DIV_RSI_DIVERG_MIN). DIV is a UNION addition to the
+                    primary+deep baseline; collisions are resolved in
+                    favor of primary/deep (higher tier), so DIV's unique
+                    contribution is divergence-gated entries in the
+                    (-3.5, -2.5) dead zone. The upper band was tightened
+                    -1.0 -> -2.0 (research/div_guardrail_sweep.py) to drop
+                    barely-oversold fires; see the DIV LEG note above.
                     Set divergence_enabled=False to disable.
 
     The DEAD ZONE (deep_threshold, SWEET_LO) = (-3.5, -2.5) is explicitly
@@ -399,11 +405,12 @@ def scan_candidates(
         # Band check (in precedence order):
         #   PRIMARY  z in [-2.5, -2.0]
         #   DEEP     z <= deep_threshold (default -3.5)
-        #   DIV      z in [-3.5, -1.0] AND bullish-divergence pattern fires
-        # The dead zone (-3.5, -2.5) is NOT eligible to PRIMARY/DEEP. DIV
-        # can fire there but only if the divergence pattern is present --
-        # the gate is precisely what kept this wider band tradeable in the
-        # backtest (DIV-only standalone was PF 1.71; DIV+R6 union PF 3.01).
+        #   DIV      z in [-3.5, -2.0] AND bullish-divergence pattern fires
+        # PRIMARY/DEEP take precedence, so DIV's eligible zone is the dead
+        # zone (-3.5, -2.5): NOT tradeable to PRIMARY/DEEP, but tradeable to
+        # DIV when the divergence pattern is present. The DIV upper band was
+        # tightened -1.0 -> -2.0 (research/div_guardrail_sweep.py) to drop
+        # barely-oversold fires inside the +/-2 sigma bands.
         in_primary = SWEET_LO <= z <= SWEET_HI
         in_deep = deep_threshold is not None and z <= deep_threshold
         div_eligible_zone = (
@@ -436,9 +443,9 @@ def scan_candidates(
             band_hi = deep_threshold if in_deep else SWEET_HI
         else:
             source = "div"
-            # For DIV, the "band" the candidate just entered is the DIV
-            # band [-3.5, -1.0]; treat -1.0 as the upper bound so the
-            # freshness reflects entry into the broader 1-sigma zone.
+            # For DIV, freshness is measured against the DIV band's upper
+            # bound (DIV_BAND_HI = -2.0) -- how many bars since z entered
+            # genuinely-oversold territory.
             band_hi = DIV_BAND_HI
 
         k_ser, _ = stoch_rsi(df["close"])
