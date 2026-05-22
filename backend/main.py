@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from backend import backtest, ichimoku, indicator_registry, kv, scheduler, state, watchlist
+from backend import ichimoku, indicator_registry, kv, scheduler, state, watchlist
 from backend.alert_engine import AlertRule
 from backend.channels import (
     REGRESSION_WINDOW, SIGMA_LEVELS, compute_channels, compute_log_channel,
@@ -331,115 +331,52 @@ def ai_cron(request: Request) -> dict:
     return ai_trader.run_cron(manual=False)
 
 
-class BacktestConfigPayload(BaseModel):
-    long_enabled: bool = True
-    short_enabled: bool = True
-    long_entry_sigma: float = -3.0
-    short_entry_sigma: float = 3.0
-    min_confidence: int = 0
-    leverage: float = 5.0
-    stop_loss_pct: float = 10.0
-    profit_target_pct: float | None = 20.0
-    trail_activation_pct: float | None = None
-    trail_distance_pct: float | None = None
-    tp_sigma: float | None = None
-    sl_sigma: float | None = None
-    time_stop_bars: int = 14
-    starting_capital: float = 10000.0
-    allocation_pct: float = 10.0
-    require_trend_alignment: bool = False
-    min_trend_pct: float = 0.0
-    trend_direction: str = "any"
-    require_stoch_extreme: bool = False
-    stoch_oversold: float = 25.0
-    stoch_overbought: float = 75.0
-    period: str = "5y"
+# ---- Stock bot (long-stock thesis-2 bot, separate paper account) ----------
+
+class StockSettingsPayload(BaseModel):
+    enabled: bool | None = None
+    entry_z: float | None = None
+    drawdown_max_pct: float | None = None
+    rsi_min: float | None = None
+    profit_target_pct: float | None = None
+    time_stop_days: int | None = None
+    position_size_pct: float | None = None
+    max_concurrent: int | None = None
+    max_entries_per_day: int | None = None
+    entry_limit_buffer_pct: float | None = None
 
 
-class SweepPayload(BacktestConfigPayload):
-    metric: str = "sharpe"
-    top_n: int = 10
-    min_trades: int = 5
+@app.get("/api/stock/state")
+def get_stock_state() -> dict:
+    from backend import stock_trader
+    return stock_trader.snapshot()
 
 
-@app.post("/api/sweep/{ticker}")
-def post_sweep(ticker: str, payload: SweepPayload) -> dict:
-    df = fetch_bars(ticker, period=payload.period)
-    if df.empty:
-        raise HTTPException(status_code=404, detail=f"No data for ticker '{ticker}'")
-    base = backtest.BacktestConfig(
-        long_enabled=payload.long_enabled,
-        short_enabled=payload.short_enabled,
-        long_entry_sigma=payload.long_entry_sigma,
-        short_entry_sigma=payload.short_entry_sigma,
-        min_confidence=payload.min_confidence,
-        leverage=payload.leverage,
-        stop_loss_pct=payload.stop_loss_pct,
-        profit_target_pct=payload.profit_target_pct,
-        trail_activation_pct=payload.trail_activation_pct,
-        trail_distance_pct=payload.trail_distance_pct,
-        tp_sigma=payload.tp_sigma,
-        sl_sigma=payload.sl_sigma,
-        time_stop_bars=payload.time_stop_bars,
-        starting_capital=payload.starting_capital,
-        allocation_pct=payload.allocation_pct,
-        require_trend_alignment=payload.require_trend_alignment,
-        min_trend_pct=payload.min_trend_pct,
-        trend_direction=payload.trend_direction,
-        require_stoch_extreme=payload.require_stoch_extreme,
-        stoch_oversold=payload.stoch_oversold,
-        stoch_overbought=payload.stoch_overbought,
-    )
-    raw_results = backtest.sweep(df, base)
-    # Drop runs with too few trades or NaN-ish metrics
-    filtered = [
-        r for r in raw_results
-        if r["stats"]["trade_count"] >= payload.min_trades
-        and r["stats"].get(payload.metric) is not None
-        and np.isfinite(r["stats"].get(payload.metric, np.nan))
-    ]
-    filtered.sort(key=lambda r: r["stats"][payload.metric], reverse=True)
-    return {
-        "ticker": ticker.upper(),
-        "metric": payload.metric,
-        "total_evaluated": len(raw_results),
-        "filtered_count": len(filtered),
-        "grid": backtest.DEFAULT_SWEEP_GRID,
-        "results": filtered[: payload.top_n],
-    }
+@app.post("/api/stock/settings")
+def post_stock_settings(payload: StockSettingsPayload) -> dict:
+    from backend import stock_store
+    patch = payload.model_dump(exclude_unset=True)
+    return {"ok": True, "settings": stock_store.save_settings(patch)}
 
 
-@app.post("/api/backtest/{ticker}")
-def post_backtest(ticker: str, payload: BacktestConfigPayload) -> dict:
-    df = fetch_bars(ticker, period=payload.period)
-    if df.empty:
-        raise HTTPException(status_code=404, detail=f"No data for ticker '{ticker}'")
-    cfg = backtest.BacktestConfig(
-        long_enabled=payload.long_enabled,
-        short_enabled=payload.short_enabled,
-        long_entry_sigma=payload.long_entry_sigma,
-        short_entry_sigma=payload.short_entry_sigma,
-        min_confidence=payload.min_confidence,
-        leverage=payload.leverage,
-        stop_loss_pct=payload.stop_loss_pct,
-        profit_target_pct=payload.profit_target_pct,
-        trail_activation_pct=payload.trail_activation_pct,
-        trail_distance_pct=payload.trail_distance_pct,
-        tp_sigma=payload.tp_sigma,
-        sl_sigma=payload.sl_sigma,
-        time_stop_bars=payload.time_stop_bars,
-        starting_capital=payload.starting_capital,
-        allocation_pct=payload.allocation_pct,
-        require_trend_alignment=payload.require_trend_alignment,
-        min_trend_pct=payload.min_trend_pct,
-        trend_direction=payload.trend_direction,
-        require_stoch_extreme=payload.require_stoch_extreme,
-        stoch_oversold=payload.stoch_oversold,
-        stoch_overbought=payload.stoch_overbought,
-    )
-    result = backtest.simulate(df, cfg)
-    result["ticker"] = ticker.upper()
-    return result
+@app.post("/api/stock/run")
+def post_stock_run() -> dict:
+    """Browser 'Run now' for the stock bot - same pipeline as the cron."""
+    from backend import stock_trader
+    return stock_trader.run_cron(manual=True)
+
+
+@app.api_route("/api/stock/cron", methods=["GET", "POST"])
+def stock_cron(request: Request) -> dict:
+    """Vercel cron for the stock bot. CRON_SECRET-gated like /api/ai/cron;
+    self-gates to US market hours via the Alpaca clock."""
+    expected = os.environ.get("CRON_SECRET")
+    if expected:
+        auth = request.headers.get("authorization") or request.headers.get("Authorization", "")
+        if auth != f"Bearer {expected}":
+            raise HTTPException(status_code=401, detail="unauthorized")
+    from backend import stock_trader
+    return stock_trader.run_cron(manual=False)
 
 
 @app.get("/api/quote/{ticker}")

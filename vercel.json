@@ -3,7 +3,8 @@
   "crons": [
     { "path": "/api/scan", "schedule": "30 21 * * 1-5" },
     { "path": "/api/discover", "schedule": "45 21 * * 1-5" },
-    { "path": "/api/ai/cron", "schedule": "0 13-21 * * 1-5" }
+    { "path": "/api/ai/cron", "schedule": "0 13-21 * * 1-5" },
+    { "path": "/api/stock/cron", "schedule": "15 13-21 * * 1-5" }
   ],
   "rewrites": [
     { "source": "/(.*)", "destination": "/api/index" }
