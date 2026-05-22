@@ -19,6 +19,11 @@
 html, body {
   margin: 0;
   height: 100%;
+  /* On mobile, 100% resolves to the LARGE viewport (height when browser chrome is
+     hidden), so the bottom of the layout sits under the URL bar and gets cut off.
+     100svh is the always-visible portion of the viewport on mobile, with no jank
+     from chrome show/hide. Older browsers ignore the second declaration. */
+  height: 100svh;
   background: var(--bg);
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -1598,6 +1603,10 @@ body.page-backtest { overflow: auto; }
   margin: 0 auto;
   padding: 20px;
   min-height: calc(100vh - 52px);
+  /* dvh tracks the mobile browser's visible viewport (URL bar in/out); the iPhone
+     home-indicator inset keeps bottom content above the gesture bar. */
+  min-height: calc(100dvh - 52px);
+  padding-bottom: calc(20px + env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -1932,6 +1941,7 @@ body.page-backtest { overflow: auto; }
     border-right: 1px solid var(--border);
     transform: translateX(-100%);
     transition: transform 0.2s ease-out;
+    padding-bottom: env(safe-area-inset-bottom);
   }
   .drawing-rail.open { transform: translateX(0); }
   .drawing-rail-toggle { display: flex; }
@@ -1950,6 +1960,7 @@ body.page-backtest { overflow: auto; }
     transition: transform 0.2s ease-out;
     z-index: 9;
     overflow-y: auto;
+    padding-bottom: env(safe-area-inset-bottom);
   }
   .sidebar.open { transform: translateX(0); }
 
