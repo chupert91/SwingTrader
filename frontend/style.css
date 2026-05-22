@@ -4,7 +4,8 @@
   --border: #21262d;
   --text: #e6edf3;
   --muted: #8b949e;
-  --accent: #58a6ff;
+  --accent: #8b5cf6;
+  --accent-2: #38bdf8;
   --up: #26a69a;
   --down: #ef5350;
   --reg: #ffffff;
@@ -36,11 +37,30 @@ html, body {
 }
 
 .brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
   font-weight: 700;
-  font-size: 15px;
-  letter-spacing: 0.5px;
-  color: var(--accent);
+  font-size: 16px;
+  letter-spacing: 0.3px;
+  line-height: 1;
+  user-select: none;
 }
+.brand-mark {
+  display: block;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+}
+.brand-wordmark {
+  background: linear-gradient(135deg, #8b5cf6 0%, #38bdf8 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+.brand:hover .brand-wordmark { filter: brightness(1.15); }
 
 .ticker-form {
   display: flex;

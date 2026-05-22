@@ -58,7 +58,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Trisigma",
+    title="Qsig",
     lifespan=None if _ON_VERCEL else lifespan,
 )
 
