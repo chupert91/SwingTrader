@@ -31,6 +31,17 @@ html, body {
   overflow: hidden;
 }
 
+/* Chart page (body has no .page-backtest class) lays out as a flex column so
+   .layout fills whatever vertical space the topbar leaves behind. Hardcoded
+   calc(100% - 52px) / calc(100% - 92px) used to undershoot when the topbar
+   wrapped to a third row on Android (brand + ticker + 5 nav links + summary),
+   pushing the bottom indicator pane off-screen. The bot/scanner/settings pages
+   use body.page-backtest with overflow: auto and stay unaffected. */
+body:not(.page-backtest) {
+  display: flex;
+  flex-direction: column;
+}
+
 .topbar {
   display: flex;
   align-items: center;
@@ -175,7 +186,7 @@ html, body {
 .legend .sw-senkou-b { background: #ef5350; }
 
 .layout {
-  height: calc(100% - 52px);
+  flex: 1 1 0;       /* fill remaining height under the (variable-height) topbar */
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) 230px;
   min-height: 0;
@@ -1927,7 +1938,9 @@ body.page-backtest { overflow: auto; }
   .summary .value { font-size: 12px; }
 
   .layout {
-    height: calc(100% - 92px);     /* topbar wraps to ~92px on mobile */
+    /* height comes from `flex: 1` on the base rule — the topbar can wrap to
+       2 or 3 rows on different phones and the layout still fills exactly the
+       leftover space. */
     grid-template-columns: minmax(0, 1fr);
   }
 
