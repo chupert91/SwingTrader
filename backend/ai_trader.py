@@ -451,14 +451,23 @@ def _run_entries(settings: dict, account: dict, max_new: int,
         skips.append(f"scan error: {exc!r}")
         return 0
 
+    # Funnel counters so the run log shows WHY 0 placed even when no
+    # per-candidate skip fires (e.g. scan returned all WEAK, or empty).
+    n_scan = len(candidates)
+    n_weak = 0
+    n_held = 0
+    n_eligible = 0
     for c in candidates:
         if slots <= 0:
             break
         tier = c.get("tier")
         if tier in ("WEAK", "?"):
+            n_weak += 1
             continue  # playbook: skip weak / lone
         if c["ticker"] in held_tickers:
+            n_held += 1
             continue
+        n_eligible += 1
         contract = ai_strategy.pick_contract(
             c["ticker"], c["price"],
             otm_pct=settings["otm_pct"],
@@ -508,6 +517,9 @@ def _run_entries(settings: dict, account: dict, max_new: int,
             f"{c['ticker']} [{tier}]: BUY 1x {contract['symbol']} "
             f"limit {limit_price} (premium ${premium:.0f})"
         )
+    skips.append(
+        f"calls: scan={n_scan}, weak/?={n_weak}, held={n_held}, eligible={n_eligible}"
+    )
     return placed
 
 
