@@ -116,7 +116,11 @@ def fetch_bars_bulk(tickers: list[str], period: str = "14mo") -> dict[str, pd.Da
     if len(tickers) == 1:
         tk = tickers[0]
         if not raw.empty:
-            out[tk] = _shape_ohlcv(raw)
+            shaped = _shape_ohlcv(raw)
+            if _is_usable(shaped):
+                out[tk] = shaped
+            else:
+                logger.warning("dropping %s: shaped frame missing timestamp/close", tk)
         return out
 
     for tk in tickers:
@@ -126,8 +130,18 @@ def fetch_bars_bulk(tickers: list[str], period: str = "14mo") -> dict[str, pd.Da
             continue
         if tk_raw.dropna(how="all").empty:
             continue
-        out[tk] = _shape_ohlcv(tk_raw)
+        shaped = _shape_ohlcv(tk_raw)
+        if not _is_usable(shaped):
+            # One malformed yfinance slice used to raise KeyError('timestamp')
+            # inside scan_candidates and kill the whole scan; now we just drop it.
+            logger.warning("dropping %s: shaped frame missing timestamp/close", tk)
+            continue
+        out[tk] = shaped
     return out
+
+
+def _is_usable(df: pd.DataFrame) -> bool:
+    return (not df.empty) and "timestamp" in df.columns and "close" in df.columns
 
 
 def _shape_ohlcv(raw: pd.DataFrame) -> pd.DataFrame:

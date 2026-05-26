@@ -22,6 +22,7 @@ the AI-page closed-trade stats prove it earns its keep.
 """
 from __future__ import annotations
 
+import logging
 import math
 from collections import Counter
 from datetime import date, timedelta
@@ -32,6 +33,8 @@ import pandas as pd
 from backend.data import fetch_bars_bulk
 from backend.indicators import rsi, stoch_rsi
 from backend.volatile_universe import universe as _scan_universe
+
+logger = logging.getLogger(__name__)
 
 WINDOW = 252
 # Calls scanner fetch period. Bumped from 14mo to 18mo so we always have
@@ -388,103 +391,110 @@ def scan_candidates(
     pending: list[dict] = []
 
     for tk, df in bars.items():
-        if df is None or df.empty or len(df) < WINDOW + 2:
-            continue
-        closes = df["close"].to_numpy(dtype=float)
-        sd, slope_ann, center_px = _log_channel_sd(closes)
-        if np.isnan(sd[-1]):
-            continue
-        ts_dates = pd.to_datetime(df["timestamp"]).dt.date.to_numpy()
-        for t in range(1, len(sd)):
-            if np.isnan(sd[t]) or np.isnan(sd[t - 1]):
+        # Per-ticker try/except: one malformed frame (e.g. yfinance returns
+        # a slice without a 'timestamp' column for one ticker) must not kill
+        # the entire scan and brick the morning's call-side entries.
+        try:
+            if df is None or df.empty or len(df) < WINDOW + 2:
                 continue
-            if sd[t] <= SWEET_HI and sd[t - 1] > SWEET_HI:
-                breadth[ts_dates[t]] += 1
+            closes = df["close"].to_numpy(dtype=float)
+            sd, slope_ann, center_px = _log_channel_sd(closes)
+            if np.isnan(sd[-1]):
+                continue
+            ts_dates = pd.to_datetime(df["timestamp"]).dt.date.to_numpy()
+            for t in range(1, len(sd)):
+                if np.isnan(sd[t]) or np.isnan(sd[t - 1]):
+                    continue
+                if sd[t] <= SWEET_HI and sd[t - 1] > SWEET_HI:
+                    breadth[ts_dates[t]] += 1
 
-        z = float(sd[-1])
-        # Band check (in precedence order):
-        #   PRIMARY  z in [-2.5, -2.0]
-        #   DEEP     z <= deep_threshold (default -3.5)
-        #   DIV      z in [-3.5, -2.0] AND bullish-divergence pattern fires
-        # PRIMARY/DEEP take precedence, so DIV's eligible zone is the dead
-        # zone (-3.5, -2.5): NOT tradeable to PRIMARY/DEEP, but tradeable to
-        # DIV when the divergence pattern is present. The DIV upper band was
-        # tightened -1.0 -> -2.0 (research/div_guardrail_sweep.py) to drop
-        # barely-oversold fires inside the +/-2 sigma bands.
-        in_primary = SWEET_LO <= z <= SWEET_HI
-        in_deep = deep_threshold is not None and z <= deep_threshold
-        div_eligible_zone = (
-            divergence_enabled
-            and not in_primary and not in_deep
-            and DIV_BAND_LO <= z <= DIV_BAND_HI
-        )
-        if not (in_primary or in_deep or div_eligible_zone):
-            continue
-
-        adv_m = _avg_dollar_vol_m(df)
-        if adv_m < MIN_AVG_DOLLAR_VOL_M:
-            continue
-
-        # Divergence features computed only for DIV-eligible candidates
-        # (rsi() is a few ms per ticker; gated to keep the scan fast).
-        div = None
-        lows = df["low"].to_numpy(dtype=float)
-        if div_eligible_zone:
-            rsi_arr = rsi(df["close"], period=DIV_RSI_PERIOD).to_numpy(dtype=float)
-            div = _bullish_divergence(sd, lows, rsi_arr)
-            if not div["div_fires"]:
+            z = float(sd[-1])
+            # Band check (in precedence order):
+            #   PRIMARY  z in [-2.5, -2.0]
+            #   DEEP     z <= deep_threshold (default -3.5)
+            #   DIV      z in [-3.5, -2.0] AND bullish-divergence pattern fires
+            # PRIMARY/DEEP take precedence, so DIV's eligible zone is the dead
+            # zone (-3.5, -2.5): NOT tradeable to PRIMARY/DEEP, but tradeable to
+            # DIV when the divergence pattern is present. The DIV upper band was
+            # tightened -1.0 -> -2.0 (research/div_guardrail_sweep.py) to drop
+            # barely-oversold fires inside the +/-2 sigma bands.
+            in_primary = SWEET_LO <= z <= SWEET_HI
+            in_deep = deep_threshold is not None and z <= deep_threshold
+            div_eligible_zone = (
+                divergence_enabled
+                and not in_primary and not in_deep
+                and DIV_BAND_LO <= z <= DIV_BAND_HI
+            )
+            if not (in_primary or in_deep or div_eligible_zone):
                 continue
 
-        if in_primary or in_deep:
-            source = "deep" if in_deep else "primary"
-            # band_hi controls the freshness/touch computation so a name
-            # that drops from -2.5 to -3.7 has bars_in_zone=1 in the deep
-            # band even though it crossed -2 weeks ago.
-            band_hi = deep_threshold if in_deep else SWEET_HI
-        else:
-            source = "div"
-            # For DIV, freshness is measured against the DIV band's upper
-            # bound (DIV_BAND_HI = -2.0) -- how many bars since z entered
-            # genuinely-oversold territory.
-            band_hi = DIV_BAND_HI
+            adv_m = _avg_dollar_vol_m(df)
+            if adv_m < MIN_AVG_DOLLAR_VOL_M:
+                continue
 
-        k_ser, _ = stoch_rsi(df["close"])
-        k_last = float(k_ser.iloc[-1]) if len(k_ser) and not pd.isna(k_ser.iloc[-1]) else None
-        is_os = k_last is not None and k_last <= stoch_oversold_max
-        if stoch_mode == "require" and not is_os:
+            # Divergence features computed only for DIV-eligible candidates
+            # (rsi() is a few ms per ticker; gated to keep the scan fast).
+            div = None
+            lows = df["low"].to_numpy(dtype=float)
+            if div_eligible_zone:
+                rsi_arr = rsi(df["close"], period=DIV_RSI_PERIOD).to_numpy(dtype=float)
+                div = _bullish_divergence(sd, lows, rsi_arr)
+                if not div["div_fires"]:
+                    continue
+
+            if in_primary or in_deep:
+                source = "deep" if in_deep else "primary"
+                # band_hi controls the freshness/touch computation so a name
+                # that drops from -2.5 to -3.7 has bars_in_zone=1 in the deep
+                # band even though it crossed -2 weeks ago.
+                band_hi = deep_threshold if in_deep else SWEET_HI
+            else:
+                source = "div"
+                # For DIV, freshness is measured against the DIV band's upper
+                # bound (DIV_BAND_HI = -2.0) -- how many bars since z entered
+                # genuinely-oversold territory.
+                band_hi = DIV_BAND_HI
+
+            k_ser, _ = stoch_rsi(df["close"])
+            k_last = float(k_ser.iloc[-1]) if len(k_ser) and not pd.isna(k_ser.iloc[-1]) else None
+            is_os = k_last is not None and k_last <= stoch_oversold_max
+            if stoch_mode == "require" and not is_os:
+                continue
+            zone = _bars_in_zone(sd, hi=band_hi)
+            n = len(sd)
+            touch_idx = n - zone
+            touch_date = ts_dates[touch_idx] if 0 <= touch_idx < n else ts_dates[-1]
+            first_touch = bool(sd[-2] > band_hi and sd[-1] <= band_hi)
+            price = float(closes[-1])
+            reversion_pct = (center_px / price - 1.0) * 100.0
+            # Bounce-confirm features (always computed, attached for UI). The
+            # tier-promotion (WEAK -> BOUNCE) happens after breadth is known.
+            # DIV candidates also get bounce features for transparency, but
+            # they're tier-stamped DIV regardless (no promotion needed).
+            k_arr = k_ser.to_numpy(dtype=float) if len(k_ser) else np.array([])
+            bounce = _bounce_features(sd, lows, k_arr)
+            pending.append({
+                "ticker": tk,
+                "price": round(price, 2),
+                "z_log": round(z, 2),
+                "source": source,             # "primary" | "deep" | "div"
+                "touch_date": str(touch_date),
+                "_touch_date": touch_date,
+                "first_touch": first_touch,
+                "bars_in_zone": zone,
+                "status": "FRESH" if zone <= 1 else ("recent" if zone <= STALE_BARS else "STALE"),
+                "reversion_to_mean_pct": round(reversion_pct, 1),
+                "realized_vol_pct": round(_realized_vol_pct(closes), 1),
+                "log_slope_ann_pct": round(slope_ann, 1),
+                "avg_dollar_vol_m": round(adv_m, 1),
+                "stoch_rsi_k": round(k_last, 1) if k_last is not None else None,
+                "stoch_oversold": is_os,
+                "bounce": bounce,
+                "divergence": div,            # None for primary/deep; dict for div
+            })
+        except Exception:
+            logger.exception("scan_candidates: skipping %s", tk)
             continue
-        zone = _bars_in_zone(sd, hi=band_hi)
-        n = len(sd)
-        touch_idx = n - zone
-        touch_date = ts_dates[touch_idx] if 0 <= touch_idx < n else ts_dates[-1]
-        first_touch = bool(sd[-2] > band_hi and sd[-1] <= band_hi)
-        price = float(closes[-1])
-        reversion_pct = (center_px / price - 1.0) * 100.0
-        # Bounce-confirm features (always computed, attached for UI). The
-        # tier-promotion (WEAK -> BOUNCE) happens after breadth is known.
-        # DIV candidates also get bounce features for transparency, but
-        # they're tier-stamped DIV regardless (no promotion needed).
-        k_arr = k_ser.to_numpy(dtype=float) if len(k_ser) else np.array([])
-        bounce = _bounce_features(sd, lows, k_arr)
-        pending.append({
-            "ticker": tk,
-            "price": round(price, 2),
-            "z_log": round(z, 2),
-            "source": source,             # "primary" | "deep" | "div"
-            "touch_date": str(touch_date),
-            "_touch_date": touch_date,
-            "first_touch": first_touch,
-            "bars_in_zone": zone,
-            "status": "FRESH" if zone <= 1 else ("recent" if zone <= STALE_BARS else "STALE"),
-            "reversion_to_mean_pct": round(reversion_pct, 1),
-            "realized_vol_pct": round(_realized_vol_pct(closes), 1),
-            "log_slope_ann_pct": round(slope_ann, 1),
-            "avg_dollar_vol_m": round(adv_m, 1),
-            "stoch_rsi_k": round(k_last, 1) if k_last is not None else None,
-            "stoch_oversold": is_os,
-            "bounce": bounce,
-            "divergence": div,            # None for primary/deep; dict for div
-        })
 
     for c in pending:
         b = int(breadth.get(c["_touch_date"], 0))
@@ -593,12 +603,16 @@ def current_z_for_tickers(tickers: list[str]) -> dict[str, float]:
     bars = fetch_bars_bulk(tickers, period="14mo")
     out: dict[str, float] = {}
     for tk, df in bars.items():
-        if df is None or df.empty or len(df) < WINDOW + 2:
+        try:
+            if df is None or df.empty or len(df) < WINDOW + 2:
+                continue
+            closes = df["close"].to_numpy(dtype=float)
+            sd, _, _ = _log_channel_sd(closes)
+            if len(sd) and not np.isnan(sd[-1]):
+                out[tk] = float(sd[-1])
+        except Exception:
+            logger.exception("current_z_for_tickers: skipping %s", tk)
             continue
-        closes = df["close"].to_numpy(dtype=float)
-        sd, _, _ = _log_channel_sd(closes)
-        if len(sd) and not np.isnan(sd[-1]):
-            out[tk] = float(sd[-1])
     return out
 
 
@@ -692,42 +706,46 @@ def scan_put_candidates() -> list[dict]:
     bars = fetch_bars_bulk(_scan_universe(), period="14mo")
     out: list[dict] = []
     for tk, df in bars.items():
-        if df is None or df.empty or len(df) < WINDOW + 2:
+        try:
+            if df is None or df.empty or len(df) < WINDOW + 2:
+                continue
+            closes = df["close"].to_numpy(dtype=float)
+            highs = df["high"].to_numpy(dtype=float)
+            sd, slope_ann, center_px = _log_channel_sd(closes)
+            if np.isnan(sd[-1]):
+                continue
+            z = float(sd[-1])
+            if not (PUTS_BAND_LO <= z <= PUTS_BAND_HI):
+                continue
+            adv_m = _avg_dollar_vol_m(df)
+            if adv_m < MIN_AVG_DOLLAR_VOL_M:
+                continue
+            k_ser, _ = stoch_rsi(df["close"])
+            k_arr = k_ser.to_numpy(dtype=float) if len(k_ser) else np.array([])
+            k_last = float(k_ser.iloc[-1]) if len(k_ser) and not pd.isna(k_ser.iloc[-1]) else None
+            feat = _bounce_features_put(sd, highs, k_arr)
+            if not feat["bounce_confirm_put"]:
+                continue
+            price = float(closes[-1])
+            # Mean-reversion target: distance from price back to the channel
+            # center (negative for puts because price is above the line).
+            reversion_pct = (center_px / price - 1.0) * 100.0
+            out.append({
+                "ticker": tk,
+                "price": round(price, 2),
+                "z_log": round(z, 2),
+                "source": "bounce_put",
+                "tier": "BOUNCE_PUT",
+                "reversion_to_mean_pct": round(reversion_pct, 1),
+                "realized_vol_pct": round(_realized_vol_pct(closes), 1),
+                "log_slope_ann_pct": round(slope_ann, 1),
+                "avg_dollar_vol_m": round(adv_m, 1),
+                "stoch_rsi_k": round(k_last, 1) if k_last is not None else None,
+                "bounce": feat,
+            })
+        except Exception:
+            logger.exception("scan_put_candidates: skipping %s", tk)
             continue
-        closes = df["close"].to_numpy(dtype=float)
-        highs = df["high"].to_numpy(dtype=float)
-        sd, slope_ann, center_px = _log_channel_sd(closes)
-        if np.isnan(sd[-1]):
-            continue
-        z = float(sd[-1])
-        if not (PUTS_BAND_LO <= z <= PUTS_BAND_HI):
-            continue
-        adv_m = _avg_dollar_vol_m(df)
-        if adv_m < MIN_AVG_DOLLAR_VOL_M:
-            continue
-        k_ser, _ = stoch_rsi(df["close"])
-        k_arr = k_ser.to_numpy(dtype=float) if len(k_ser) else np.array([])
-        k_last = float(k_ser.iloc[-1]) if len(k_ser) and not pd.isna(k_ser.iloc[-1]) else None
-        feat = _bounce_features_put(sd, highs, k_arr)
-        if not feat["bounce_confirm_put"]:
-            continue
-        price = float(closes[-1])
-        # Mean-reversion target: distance from price back to the channel
-        # center (negative for puts because price is above the line).
-        reversion_pct = (center_px / price - 1.0) * 100.0
-        out.append({
-            "ticker": tk,
-            "price": round(price, 2),
-            "z_log": round(z, 2),
-            "source": "bounce_put",
-            "tier": "BOUNCE_PUT",
-            "reversion_to_mean_pct": round(reversion_pct, 1),
-            "realized_vol_pct": round(_realized_vol_pct(closes), 1),
-            "log_slope_ann_pct": round(slope_ann, 1),
-            "avg_dollar_vol_m": round(adv_m, 1),
-            "stoch_rsi_k": round(k_last, 1) if k_last is not None else None,
-            "bounce": feat,
-        })
 
     out.sort(key=lambda c: (
         -c["bounce"]["f5_resistance_hits"],          # stronger resistance first
