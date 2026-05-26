@@ -12,11 +12,11 @@ import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from backend import ichimoku, indicator_registry, kv, scheduler, state, watchlist
+from backend import auth, ichimoku, indicator_registry, kv, scheduler, state, watchlist
 from backend.alert_engine import AlertRule
 from backend.channels import (
     REGRESSION_WINDOW, SIGMA_LEVELS, compute_channels, compute_log_channel,
@@ -61,6 +61,53 @@ app = FastAPI(
     title="Qsig",
     lifespan=None if _ON_VERCEL else lifespan,
 )
+
+
+@app.middleware("http")
+async def session_gate(request: Request, call_next):
+    """Single-password session gate. No-op unless APP_PASSWORD is set."""
+    if not auth.is_enabled():
+        return await call_next(request)
+    path = request.url.path
+    if auth.is_exempt(path):
+        return await call_next(request)
+    token = request.cookies.get(auth.COOKIE_NAME)
+    if auth.verify_session_token(token):
+        return await call_next(request)
+    if path.startswith("/api/"):
+        return JSONResponse({"detail": "unauthorized"}, status_code=401)
+    return RedirectResponse(url="/login.html", status_code=303)
+
+
+@app.get("/login")
+def login_redirect():
+    return RedirectResponse(url="/login.html", status_code=302)
+
+
+@app.post("/login")
+async def login_submit(request: Request):
+    form = await request.form()
+    password = str(form.get("password", ""))
+    if not auth.verify_password(password):
+        return RedirectResponse(url="/login.html?error=1", status_code=303)
+    response = RedirectResponse(url="/", status_code=303)
+    response.set_cookie(
+        auth.COOKIE_NAME,
+        auth.make_session_token(),
+        max_age=auth.SESSION_TTL_SECONDS,
+        httponly=True,
+        secure=request.url.scheme == "https",
+        samesite="lax",
+        path="/",
+    )
+    return response
+
+
+@app.post("/logout")
+def logout():
+    response = RedirectResponse(url="/login.html", status_code=303)
+    response.delete_cookie(auth.COOKIE_NAME, path="/")
+    return response
 
 
 FETCH_PERIOD = "14mo"  # > 252 trading days so compute_channels has a full fit window

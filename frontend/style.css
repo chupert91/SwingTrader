@@ -1527,6 +1527,12 @@ main {
   transition: color 0.15s, border-color 0.15s;
 }
 .topbar-link:hover { color: var(--accent); border-color: var(--accent); }
+.topbar-logout { margin: 0; display: inline-flex; }
+.topbar-logout button.topbar-link {
+  background: transparent;
+  font-family: inherit;
+  cursor: pointer;
+}
 
 /* ===========================================================
    Signal sidebar section (chart page)
