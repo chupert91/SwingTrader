@@ -517,8 +517,11 @@ def _run_entries(settings: dict, account: dict, max_new: int,
             f"{c['ticker']} [{tier}]: BUY 1x {contract['symbol']} "
             f"limit {limit_price} (premium ${premium:.0f})"
         )
+    bars_n = getattr(ai_strategy.scan_candidates, "last_bars", None)
+    uni_n = getattr(ai_strategy.scan_candidates, "last_universe", None)
     skips.append(
-        f"calls: scan={n_scan}, weak/?={n_weak}, held={n_held}, eligible={n_eligible}"
+        f"calls: bars={bars_n}/{uni_n}, scan={n_scan}, "
+        f"weak/?={n_weak}, held={n_held}, eligible={n_eligible}"
     )
     return placed
 
@@ -559,7 +562,10 @@ def _run_put_entries(settings: dict, account: dict, max_new: int,
         return 0
 
     if not candidates:
-        skips.append("puts: no candidates pass all 5 features")
+        bars_n = getattr(ai_strategy.scan_put_candidates, "last_bars", None)
+        uni_n = getattr(ai_strategy.scan_put_candidates, "last_universe", None)
+        skips.append(
+            f"puts: bars={bars_n}/{uni_n}, no candidates pass all 5 features")
         return 0
 
     for c in candidates:

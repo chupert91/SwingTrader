@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 from collections import Counter
 from datetime import date, timedelta
 
@@ -37,6 +38,13 @@ from backend.volatile_universe import universe as _scan_universe
 logger = logging.getLogger(__name__)
 
 WINDOW = 252
+# When daily bars come from the Alpaca IEX fallback (yfinance rate-limited),
+# the volume column is IEX-only -- roughly a few % of consolidated tape. The
+# dollar-volume liquidity gate is calibrated for yfinance's consolidated
+# volume, so IEX-sourced frames get scaled up by this factor before the gate.
+# Deliberately conservative (~1/20 IEX share assumption): large liquid names
+# clear the $50M gate, genuine microcaps still fail. Override per deployment.
+IEX_VOLUME_SCALE = float(os.environ.get("ALPACA_IEX_VOLUME_SCALE", "20"))
 # Calls scanner fetch period. Bumped from 14mo to 18mo so we always have
 # WINDOW (252) + DIV_LOOKBACK (60) + 2 = 314 trading days for the
 # bullish-divergence prior-pivot search. 18mo ~ 378 td.
@@ -170,9 +178,12 @@ def _bars_in_zone(sd: np.ndarray, hi: float = SWEET_HI) -> int:
 def _avg_dollar_vol_m(df: pd.DataFrame, window: int = 20) -> float:
     if "volume" not in df.columns or len(df) < window:
         return 0.0
+    # Read the source tag BEFORE slicing (DataFrame.attrs is not guaranteed to
+    # survive .iloc). IEX-fallback frames carry partial (exchange-only) volume.
+    scale = IEX_VOLUME_SCALE if df.attrs.get("partial_volume") else 1.0
     tail = df.iloc[-window:]
     dv = (tail["close"] * tail["volume"]).mean()
-    return 0.0 if pd.isna(dv) else float(dv) / 1_000_000.0
+    return 0.0 if pd.isna(dv) else float(dv) * scale / 1_000_000.0
 
 
 def tier_for(breadth: int) -> str:
@@ -386,7 +397,13 @@ def scan_candidates(
       - "require":  names with %K > stoch_oversold_max (or unknown %K) are
                    dropped entirely.
     """
-    bars = fetch_bars_bulk(_scan_universe(), period=CALLS_FETCH_PERIOD)
+    uni = _scan_universe()
+    bars = fetch_bars_bulk(uni, period=CALLS_FETCH_PERIOD)
+    # Expose fetch coverage so the entry funnel log can tell a DATA failure
+    # (bars=0/N -> yfinance+Alpaca both empty) apart from a real no-signal day
+    # (bars=N/N, scan=0). Both otherwise collapse to the same "scan=0" line.
+    scan_candidates.last_universe = len(uni)
+    scan_candidates.last_bars = len(bars)
     breadth: Counter = Counter()
     pending: list[dict] = []
 
@@ -703,7 +720,10 @@ def scan_put_candidates() -> list[dict]:
     higher conviction), then by Stoch RSI %K descending (more overbought =
     further to revert).
     """
-    bars = fetch_bars_bulk(_scan_universe(), period="14mo")
+    uni = _scan_universe()
+    bars = fetch_bars_bulk(uni, period="14mo")
+    scan_put_candidates.last_universe = len(uni)
+    scan_put_candidates.last_bars = len(bars)
     out: list[dict] = []
     for tk, df in bars.items():
         try:
